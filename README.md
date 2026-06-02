@@ -4,6 +4,7 @@ Solution Node.js locale pour extraire l'audio d'un fichier video/audio avec FFmp
 
 Les schemas de composants, de flux n8n et de deploiement par conteneurs sont disponibles dans [ARCHITECTURE.md](./ARCHITECTURE.md).
 Le processus GitHub, les environnements, les releases, les rollbacks et les sauvegardes sont decrits dans [GITHUB_PROCESS.md](./GITHUB_PROCESS.md).
+Le workflow n8n qui combine transcription et synthese Ollama est decrit dans [N8N_OLLAMA_WORKFLOW.md](./N8N_OLLAMA_WORKFLOW.md).
 
 Le principe est volontairement simple:
 
