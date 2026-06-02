@@ -1,0 +1,15 @@
+{
+  "name": "audio-extraction-transcription",
+  "version": "1.0.0",
+  "description": "Extraction audio via FFmpeg et transcription locale sans LLM.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "transcribe": "node src/cli.js",
+    "check": "node --check src/audio.js && node --check src/env.js && node --check src/localTranscriber.js && node --check src/upload.js && node --check src/transcribe.js && node --check src/server.js && node --check src/cli.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

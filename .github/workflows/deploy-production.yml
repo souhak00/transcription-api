@@ -1,0 +1,24 @@
+name: Deploy production
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  deploy-production:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build -t transcription-api:${{ github.ref_name }} .
+
+      - name: Deployment placeholder
+        run: |
+          echo "Ajouter ici le deploiement production."
+          echo "Cette execution est declenchee par un tag, par exemple v1.1.0."

@@ -1,0 +1,23 @@
+services:
+  # Service HTTP local appele par curl ou par le noeud HTTP Request de n8n.
+  transcription-api:
+    # Construit l'image depuis le Dockerfile du dossier courant.
+    build: .
+    container_name: transcription-api
+    ports:
+      # Rend le port de l'API accessible sur la machine hote.
+      - "3000:3000"
+    environment:
+      # Configure le serveur et le moteur Vosk integre dans l'image.
+      HOST: 0.0.0.0
+      PORT: 3000
+      TRANSCRIBER_COMMAND: python3
+      TRANSCRIBER_ARGS: "scripts/vosk_transcribe.py --model /opt/vosk-model --input {input} --output {output} {diarizeArgs} {diarizationModelArgs}"
+      DIARIZATION_MODEL: pyannote/speaker-diarization-3.1
+      # HUGGINGFACE_TOKEN est requis si le modele pyannote choisi est protege.
+      # HUGGINGFACE_TOKEN: hf_xxx
+      MAX_UPLOAD_BODY_MB: 512
+    volumes:
+      # Conserve les transcriptions sur le disque meme si le conteneur est supprime.
+      - ./outputs:/app/outputs
+    restart: unless-stopped

@@ -1,0 +1,24 @@
+name: Deploy development
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy-development:
+    name: Deploy to development
+    runs-on: ubuntu-latest
+    environment: development
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build development image
+        run: docker build -t transcription-api:development .
+
+      - name: Deployment placeholder
+        run: |
+          echo "Ajouter ici le deploiement vers l'environnement development."
+          echo "Exemples: SSH, registry Docker, Kubernetes, Azure Container Apps, Cloud Run."

@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+      - "release/**"
+  push:
+    branches:
+      - develop
+      - main
+      - "release/**"
+
+jobs:
+  validate:
+    name: Validate code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Check JavaScript syntax
+        run: npm run check
+
+      - name: Check Python syntax
+        run: python -m py_compile scripts/vosk_transcribe.py
+
+      - name: Validate Docker build without diarization
+        run: docker build -t transcription-api:ci .
