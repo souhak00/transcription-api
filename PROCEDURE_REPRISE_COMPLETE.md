@@ -271,16 +271,25 @@ Construire le flux complet:
 ```text
 Manual Trigger
 -> Google Drive Download
-   -> Google Drive Upload Original
-   -> API - Transcription
-      -> Ollama - Synthese
-         -> Convert to text file
-            -> Google Drive Upload Synthese
+-> API - Transcription
+   -> Convert Transcription Originale
+      -> Transcription Original
+   -> HTTP Request
+      -> Transcription AI Convert to File
+         -> Transcription AI
 ```
 
 ### Resultat attendu
 
-Le workflow contient une branche pour copier le fichier original et une branche pour produire puis sauvegarder la synthese.
+Le workflow contient une branche pour sauvegarder la transcription originale et une branche pour produire puis sauvegarder la synthese IA.
+
+### Export de reference
+
+La version validee du workflow est sauvegardee dans:
+
+```text
+n8n-workflows/Transcription_Local_2026-06-03-0702.json
+```
 
 ## 9. Ajouter le noeud Manual Trigger
 
@@ -469,38 +478,61 @@ Name: file
 Input Data Field Name: data
 ```
 
-## 13. Transferer le fichier original vers le dossier cible
+## 13. Convertir la transcription originale en fichier texte
 
 ### Objectif
 
-Conserver une copie du fichier source dans le dossier cible Google Drive, en plus de la synthese.
+Transformer le champ `transcript` retourne par l'API en fichier texte.
 
 ### Position dans le workflow
 
 Ce noeud part directement de:
 
 ```text
-Google Drive Download
+API - Transcription
 ```
 
-Il est donc en parallele de la branche de transcription.
+Il est en parallele de la branche Ollama.
 
 ### Configuration
 
-Ajouter un noeud Google Drive:
+Ajouter un noeud `Convert to File`:
 
 ```text
+Node: Convert Transcription Originale
+Operation: Convert to Text File
+Text Input Field: transcript
+Put Output File in Field: data
+```
+
+### Resultat attendu
+
+La sortie contient:
+
+```text
+binary.data
+Mime Type: text/plain
+File Size: superieur a 0 B
+```
+
+## 14. Sauvegarder la transcription originale dans Google Drive
+
+### Objectif
+
+Uploader le fichier texte de transcription dans le dossier cible.
+
+### Configuration
+
+Ajouter un noeud Google Drive apres `Convert Transcription Originale`:
+
+```text
+Node: Transcription Original
 Resource: File
 Operation: Upload
 Input Data Field Name: data
+File Name: ={{ "transcription-originale-" + $now.toFormat("yyyy-MM-dd-HH-mm") + ".txt" }}
 Parent Drive: My Drive
-Parent Folder: dossier cible
-```
-
-Nom du fichier:
-
-```text
-{{$binary.data.fileName}}
+Parent Folder: ID du dossier cible
 ```
 
 ### Resultat attendu
@@ -514,13 +546,9 @@ mimeType
 webViewLink
 ```
 
-Le fichier original est visible dans le dossier cible Google Drive.
+Le fichier `transcription-originale-...txt` est visible dans le dossier cible Google Drive.
 
-### Test de validation
-
-Ouvrir le dossier cible Google Drive et verifier que le fichier audio/video original est present.
-
-## 14. Configurer le noeud Ollama - Synthese
+## 15. Configurer le noeud Ollama - Synthese
 
 ### Objectif
 
@@ -581,7 +609,7 @@ JSON parameter needs to be valid JSON
 
 utiliser l'expression JavaScript ci-dessus au lieu d'un JSON fixe contenant `{{$json.transcript}}`.
 
-## 15. Convertir la synthese en fichier texte formate
+## 16. Convertir la synthese IA en fichier texte
 
 ### Objectif
 
@@ -601,27 +629,11 @@ Convert to text file
 
 ### Configuration
 
-Texte recommande:
-
 ```text
-RESULTAT DE SYNTHESE
-
-Date de traitement: {{$now}}
-
-SYNTHESE
-{{$json.response}}
-```
-
-Nom du fichier:
-
-```javascript
-={{ "synthese-" + $now.toFormat("yyyy-MM-dd-HH-mm") + ".txt" }}
-```
-
-Propriete binaire de sortie:
-
-```text
-data
+Node: Transcription AI Convert to File
+Operation: Convert to Text File
+Text Input Field: response
+Put Output File in Field: data
 ```
 
 ### Resultat attendu
@@ -639,21 +651,22 @@ Mime Type: text/plain
 File Extension: txt
 ```
 
-## 16. Sauvegarder la synthese dans Google Drive
+## 17. Sauvegarder la synthese IA dans Google Drive
 
 ### Objectif
 
-Uploader le fichier texte genere vers Google Drive.
+Uploader le fichier texte de synthese genere par Ollama vers Google Drive.
 
 ### Configuration
 
 ```text
+Node: Transcription AI
 Resource: File
 Operation: Upload
 Input Data Field Name: data
-File Name: synthese-...
+File Name: ={{ "synthese-ai-" + $now.toFormat("yyyy-MM-dd-HH-mm") + ".txt" }}
 Parent Drive: My Drive
-Parent Folder: dossier cible
+Parent Folder: ID du dossier cible
 ```
 
 Pour choisir le repertoire cible:
@@ -688,7 +701,7 @@ webViewLink
 
 Le fichier est visible dans Google Drive.
 
-## 17. Tester le workflow complet
+## 18. Tester le workflow complet
 
 ### Objectif
 
@@ -708,16 +721,24 @@ Chaque noeud devient vert:
 
 ```text
 Manual Trigger
-Google Drive Download
+Ollama - Test synthese
+Download file
 API - Transcription
-Ollama - Synthese
-Convert to File
-Upload file
+HTTP Request
+Convert Transcription Originale
+Transcription Original
+Transcription AI Convert to File
+Transcription AI
 ```
 
 ### Test de validation
 
-Dans Google Drive, verifier que le fichier de synthese est cree.
+Dans Google Drive, verifier que deux fichiers sont crees:
+
+```text
+transcription-originale-YYYY-MM-DD-HH-mm.txt
+synthese-ai-YYYY-MM-DD-HH-mm.txt
+```
 
 Dans l'API locale, verifier les resultats:
 
@@ -725,7 +746,7 @@ Dans l'API locale, verifier les resultats:
 Get-ChildItem "C:\Users\Admin\Documents\Api Exraction d'audio\outputs" -Recurse
 ```
 
-## 18. Exporter le workflow n8n
+## 19. Exporter le workflow n8n
 
 ### Objectif
 
@@ -748,7 +769,7 @@ C:\Users\Admin\Documents\Api Exraction d'audio\n8n-workflows
 Nom recommande:
 
 ```text
-transcription-local-ollama.json
+Transcription_Local_YYYY-MM-DD-HHmm.json
 ```
 
 ### Resultat attendu
@@ -759,7 +780,7 @@ Le fichier JSON du workflow existe dans le projet.
 
 Verifier que l'export ne contient pas de secret sensible avant de le pousser dans GitHub.
 
-## 19. Sauvegarder le code dans GitHub
+## 20. Sauvegarder le code dans GitHub
 
 ### Objectif
 
@@ -797,7 +818,7 @@ Verifier aussi sur GitHub:
 https://github.com/souhak00/transcription-api
 ```
 
-## 20. Sauvegarder les resultats generes
+## 21. Sauvegarder les resultats generes
 
 ### Objectif
 
@@ -819,7 +840,7 @@ Un fichier ZIP est cree:
 backup\outputs-YYYYMMDD-HHMMSS.zip
 ```
 
-## 21. Sauvegarder l'image Docker optionnellement
+## 22. Sauvegarder l'image Docker optionnellement
 
 ### Objectif
 
@@ -845,7 +866,7 @@ backup\transcription-api-image.tar
 docker load -i backup\transcription-api-image.tar
 ```
 
-## 22. Reprise rapide apres redemarrage
+## 23. Reprise rapide apres redemarrage
 
 ### Objectif
 
@@ -878,7 +899,7 @@ http://localhost:5678
 
 Executer le workflow.
 
-## 23. Checklist de validation finale
+## 24. Checklist de validation finale
 
 Avant de considerer le systeme fonctionnel:
 
@@ -889,9 +910,12 @@ Avant de considerer le systeme fonctionnel:
 [ ] n8n est accessible sur localhost:5678
 [ ] Google Drive Download retourne binary.data
 [ ] API - Transcription retourne transcript
-[ ] Ollama - Synthese retourne response
-[ ] Convert to File retourne binary.data
-[ ] Upload file cree un fichier dans Google Drive
+[ ] HTTP Request Ollama retourne response
+[ ] Convert Transcription Originale retourne binary.data avec une taille > 0 B
+[ ] Transcription Original cree un fichier Google Drive
+[ ] Transcription AI Convert to File retourne binary.data avec une taille > 0 B
+[ ] Transcription AI cree un fichier Google Drive
+[ ] Deux fichiers sont visibles dans Google Drive: transcription originale et synthese IA
 [ ] Le workflow n8n est exporte
 [ ] Le code est pousse dans GitHub
 [ ] Les outputs sont archives

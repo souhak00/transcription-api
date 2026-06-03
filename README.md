@@ -6,6 +6,7 @@ Les schemas de composants, de flux n8n et de deploiement par conteneurs sont dis
 Le processus GitHub, les environnements, les releases, les rollbacks et les sauvegardes sont decrits dans [GITHUB_PROCESS.md](./GITHUB_PROCESS.md).
 Le workflow n8n qui combine transcription et synthese Ollama est decrit dans [N8N_OLLAMA_WORKFLOW.md](./N8N_OLLAMA_WORKFLOW.md).
 La procedure complete de reprise, avec resultats attendus et tests de validation, est disponible dans [PROCEDURE_REPRISE_COMPLETE.md](./PROCEDURE_REPRISE_COMPLETE.md).
+Les actions pour ameliorer la qualite de transcription sont decrites dans [AMELIORER_TRANSCRIPTION.md](./AMELIORER_TRANSCRIPTION.md).
 
 Le principe est volontairement simple:
 

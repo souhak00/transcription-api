@@ -1,0 +1,305 @@
+{
+  "name": "Transcription_Local",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        1360,
+        560
+      ],
+      "id": "3bd2634c-5362-4686-a533-c8827d4acc12",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"llama3.2:latest\",\n  \"stream\": false,\n  \"prompt\": \"Resume en une phrase: Cette reunion porte sur la creation d'un workflow n8n local avec transcription et synthese.\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1552,
+        560
+      ],
+      "id": "861be0ea-6d74-4400-a658-30fba49729a6",
+      "name": "Ollama - Test synthese"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "https://drive.google.com/file/d/1eAgpeNwIyPFb6Vx6YPKzXrofLQTRRXqV/view?usp=drive_link",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1712,
+        560
+      ],
+      "id": "98e56b70-e23f-48e8-8715-7b8abcb7b94f",
+      "name": "Download file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "OEDe3P9YA4MWymqs",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3000/transcribe/upload",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "language",
+              "value": "fr"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1888,
+        560
+      ],
+      "id": "7daf227c-031e-4c7a-bf5f-e4c2bab23d1c",
+      "name": "API - Transcription"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "contentType": "=json",
+        "specifyBody": "json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={{\n  {\n    \"model\": \"llama3.2:latest\",\n    \"stream\": false,\n    \"prompt\": \"Tu es un assistant de synthese. Resume la transcription suivante en francais. Donne: 1) un resume court, 2) les points importants, 3) les actions a faire, 4) les decisions prises.\\n\\nTranscription:\\n\" + $json.transcript\n  }\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1552,
+        752
+      ],
+      "id": "af5219eb-eadc-4592-aa81-7a1c285ba64e",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "=transcript",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        2112,
+        560
+      ],
+      "id": "0c1ac556-ee59-4a21-892d-d5f43bdf4488",
+      "name": "Convert Transcription Originale"
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "response",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1712,
+        752
+      ],
+      "id": "937ccd4a-b778-4529-95af-6453ef736251",
+      "name": "Transcription AI Convert to File"
+    },
+    {
+      "parameters": {
+        "name": "={{ \"transcription-originale-\" + $now.toFormat(\"yyyy-MM-dd-HH-mm\") + \".txt\" }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1JHtcm7S9rwRaFwipJxKcUM7OlvE8xLyE",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2288,
+        560
+      ],
+      "id": "948b062e-bc4a-4281-b1ad-ce38eda39a70",
+      "name": "Transcription Original",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "OEDe3P9YA4MWymqs",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "=={{ \"synthese-ai-\" + $now.toFormat(\"yyyy-MM-dd-HH-mm\") + \".txt\" }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1NDSjZW0ozmIX836g1cF2GZoPpT0__oqA",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1888,
+        752
+      ],
+      "id": "12fa8619-1d66-484c-8441-12224bb91ab9",
+      "name": "Transcription AI",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "OEDe3P9YA4MWymqs",
+          "name": "Google Drive account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Ollama - Test synthese",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Test synthese": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "API - Transcription",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API - Transcription": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Convert Transcription Originale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Transcription AI Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Transcription Originale": {
+      "main": [
+        [
+          {
+            "node": "Transcription Original",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcription AI Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Transcription AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "dcbdda92-caa7-48db-8245-6ab7231208d7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a73bb1ca61cbc25a95cd316c9ddc9ab0172dc30908c6ff8a7eeadbe99d80f4e2"
+  },
+  "id": "BoBfNpH92bACJEcMzhsQt",
+  "tags": []
+}

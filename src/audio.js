@@ -3,6 +3,7 @@ import { access, mkdir, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_SAMPLE_RATE = "16000";
+const DEFAULT_AUDIO_FILTERS = "highpass=f=80,lowpass=f=7800,loudnorm";
 
 /** Verifie que le fichier d'entree existe et est lisible. */
 export async function ensureFileExists(filePath) {
@@ -76,9 +77,10 @@ export async function extractAudio(inputPath, outputDir, options = {}) {
   const baseName = sanitizeName(path.parse(resolvedInput).name);
   const outputPath = path.join(outputDir, `${baseName}.wav`);
   const sampleRate = options.sampleRate || DEFAULT_SAMPLE_RATE;
+  const filters = options.filters || process.env.FFMPEG_AUDIO_FILTERS || DEFAULT_AUDIO_FILTERS;
 
   // FFmpeg ignore l'image video (`-vn`) et genere un signal PCM mono 16 bits.
-  await runCommand("ffmpeg", [
+  const args = [
     "-y",
     "-i",
     resolvedInput,
@@ -87,10 +89,19 @@ export async function extractAudio(inputPath, outputDir, options = {}) {
     "1",
     "-ar",
     sampleRate,
+  ];
+
+  if (filters) {
+    args.push("-af", filters);
+  }
+
+  args.push(
     "-acodec",
     "pcm_s16le",
     outputPath
-  ]);
+  );
+
+  await runCommand("ffmpeg", args);
 
   return outputPath;
 }
@@ -99,8 +110,9 @@ export async function extractAudio(inputPath, outputDir, options = {}) {
 export async function splitAudio(audioPath, chunksDir, segmentSeconds = 600) {
   await ensureDirectory(chunksDir);
   const pattern = path.join(chunksDir, "chunk_%03d.wav");
+  const filters = process.env.FFMPEG_AUDIO_FILTERS || DEFAULT_AUDIO_FILTERS;
 
-  await runCommand("ffmpeg", [
+  const args = [
     "-y",
     "-i",
     audioPath,
@@ -114,10 +126,19 @@ export async function splitAudio(audioPath, chunksDir, segmentSeconds = 600) {
     "1",
     "-ar",
     DEFAULT_SAMPLE_RATE,
+  ];
+
+  if (filters) {
+    args.push("-af", filters);
+  }
+
+  args.push(
     "-acodec",
     "pcm_s16le",
     pattern
-  ]);
+  );
+
+  await runCommand("ffmpeg", args);
 
   const files = await readdir(chunksDir);
   // Renvoie les morceaux WAV dans l'ordre de leur numero de segment.

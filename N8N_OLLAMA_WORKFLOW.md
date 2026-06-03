@@ -6,9 +6,10 @@ Ce guide decrit un workflow n8n qui:
 2. envoie le fichier a l'API `transcription-api`;
 3. recupere la transcription;
 4. envoie la transcription a Ollama;
-5. transfere le fichier original dans le dossier cible;
+5. convertit la transcription originale en fichier texte;
 6. produit une synthese exploitable;
-7. transfere le resultat formate dans le dossier cible.
+7. convertit la synthese IA en fichier texte;
+8. transfere les deux resultats dans Google Drive.
 
 ## Prerequis
 
@@ -63,13 +64,21 @@ flowchart LR
     DriveDownload["Google Drive Download"]
     Transcription["HTTP Request<br/>transcription-api"]
     Ollama["HTTP Request<br/>Ollama"]
-    UploadOriginal["Google Drive Upload<br/>fichier original"]
-    Convert["Convert to text file<br/>synthese formatee"]
-    UploadSummary["Google Drive Upload<br/>synthese"]
+    ConvertOriginal["Convert to text file<br/>transcription originale"]
+    UploadOriginal["Google Drive Upload<br/>transcription originale"]
+    ConvertAi["Convert to text file<br/>synthese IA"]
+    UploadAi["Google Drive Upload<br/>synthese IA"]
 
     DriveTrigger --> DriveDownload
-    DriveDownload --> UploadOriginal
-    DriveDownload --> Transcription --> Ollama --> Convert --> UploadSummary
+    DriveDownload --> Transcription
+    Transcription --> ConvertOriginal --> UploadOriginal
+    Transcription --> Ollama --> ConvertAi --> UploadAi
+```
+
+La version exportee et validee du workflow est disponible dans:
+
+```text
+n8n-workflows/Transcription_Local_2026-06-03-0702.json
 ```
 
 ## Noeud 1 - Google Drive Trigger
@@ -179,94 +188,103 @@ Dans n8n, le texte de synthese est disponible dans:
 {{$json.response}}
 ```
 
-## Noeud 5 - Sauvegarde du resultat
+## Noeud 5 - Convertir la transcription originale
 
-Le workflow doit produire deux sauvegardes:
-
-1. le fichier original;
-2. le resultat formate contenant la synthese.
-
-### Sauvegarder le fichier original
-
-Ajouter un noeud `Google Drive` apres `Google Drive Download`.
+Objectif: convertir le champ `transcript` retourne par l'API en fichier `.txt`.
 
 Configuration:
 
 ```text
-Resource: File
-Operation: Upload
-Input Data Field Name: data
-Parent Drive: My Drive
-Parent Folder: dossier cible
+Node: Convert Transcription Originale
+Operation: Convert to Text File
+Text Input Field: transcript
+Put Output File in Field: data
 ```
 
-Nom du fichier:
+Sortie attendue:
 
 ```text
-{{$binary.data.fileName}}
+binary.data
+Mime Type: text/plain
+File Size: superieur a 0 B
 ```
 
-Ce noeud reutilise directement le binaire `data` obtenu par le noeud Google Drive Download.
+## Noeud 6 - Sauvegarder la transcription originale
 
-### Sauvegarder la synthese formatee
-
-Ajouter un noeud `Convert to File` apres le noeud Ollama.
-
-Action:
-
-```text
-Convert to text file
-```
-
-Contenu:
-
-```text
-SYNTHESE
-{{$json.response}}
-```
-
-Nom du fichier:
-
-```javascript
-={{ "synthese-" + $now.toFormat("yyyy-MM-dd-HH-mm") + ".txt" }}
-```
-
-Propriete binaire de sortie:
-
-```text
-data
-```
-
-Ajouter ensuite un deuxieme noeud `Google Drive`.
+Objectif: envoyer le fichier texte de transcription dans Google Drive.
 
 Configuration:
 
 ```text
+Node: Transcription Original
 Resource: File
 Operation: Upload
 Input Data Field Name: data
+File Name: ={{ "transcription-originale-" + $now.toFormat("yyyy-MM-dd-HH-mm") + ".txt" }}
 Parent Drive: My Drive
-Parent Folder: dossier cible
+Parent Folder: ID du dossier cible
 ```
 
-### Autres options possibles
-
-- creer un Google Doc;
-- creer un fichier `.txt` dans Google Drive;
-- envoyer un email;
-- enregistrer dans une base de donnees;
-- envoyer vers Teams/Slack.
-
-Exemple de contenu a sauvegarder:
+Sortie attendue:
 
 ```text
-Titre: Synthese - {{$now}}
+id
+name
+webViewLink
+```
 
-TRANSCRIPTION
-{{$node["HTTP Request transcription-api"].json["transcript"]}}
+## Noeud 7 - Convertir la synthese IA
 
-SYNTHESE
-{{$node["HTTP Request Ollama"].json["response"]}}
+Objectif: convertir la reponse Ollama `response` en fichier `.txt`.
+
+Configuration:
+
+```text
+Node: Transcription AI Convert to File
+Operation: Convert to Text File
+Text Input Field: response
+Put Output File in Field: data
+```
+
+Sortie attendue:
+
+```text
+binary.data
+Mime Type: text/plain
+File Size: superieur a 0 B
+```
+
+## Noeud 8 - Sauvegarder la synthese IA
+
+Objectif: envoyer la synthese IA dans Google Drive.
+
+Configuration:
+
+```text
+Node: Transcription AI
+Resource: File
+Operation: Upload
+Input Data Field Name: data
+File Name: ={{ "synthese-ai-" + $now.toFormat("yyyy-MM-dd-HH-mm") + ".txt" }}
+Parent Drive: My Drive
+Parent Folder: ID du dossier cible
+```
+
+Sortie attendue:
+
+```text
+id
+name
+webViewLink
+```
+
+## Resultats attendus dans Google Drive
+
+Chaque execution reussie doit creer deux fichiers:
+
+```text
+transcription-originale-YYYY-MM-DD-HH-mm.txt
+synthese-ai-YYYY-MM-DD-HH-mm.txt
 ```
 
 ## Test manuel sans Google Drive
