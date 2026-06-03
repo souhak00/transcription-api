@@ -6,7 +6,9 @@ Ce guide decrit un workflow n8n qui:
 2. envoie le fichier a l'API `transcription-api`;
 3. recupere la transcription;
 4. envoie la transcription a Ollama;
-5. produit une synthese exploitable.
+5. transfere le fichier original dans le dossier cible;
+6. produit une synthese exploitable;
+7. transfere le resultat formate dans le dossier cible.
 
 ## Prerequis
 
@@ -61,9 +63,13 @@ flowchart LR
     DriveDownload["Google Drive Download"]
     Transcription["HTTP Request<br/>transcription-api"]
     Ollama["HTTP Request<br/>Ollama"]
-    Save["Google Docs / Drive / Email"]
+    UploadOriginal["Google Drive Upload<br/>fichier original"]
+    Convert["Convert to text file<br/>synthese formatee"]
+    UploadSummary["Google Drive Upload<br/>synthese"]
 
-    DriveTrigger --> DriveDownload --> Transcription --> Ollama --> Save
+    DriveTrigger --> DriveDownload
+    DriveDownload --> UploadOriginal
+    DriveDownload --> Transcription --> Ollama --> Convert --> UploadSummary
 ```
 
 ## Noeud 1 - Google Drive Trigger
@@ -175,7 +181,75 @@ Dans n8n, le texte de synthese est disponible dans:
 
 ## Noeud 5 - Sauvegarde du resultat
 
-Options possibles:
+Le workflow doit produire deux sauvegardes:
+
+1. le fichier original;
+2. le resultat formate contenant la synthese.
+
+### Sauvegarder le fichier original
+
+Ajouter un noeud `Google Drive` apres `Google Drive Download`.
+
+Configuration:
+
+```text
+Resource: File
+Operation: Upload
+Input Data Field Name: data
+Parent Drive: My Drive
+Parent Folder: dossier cible
+```
+
+Nom du fichier:
+
+```text
+{{$binary.data.fileName}}
+```
+
+Ce noeud reutilise directement le binaire `data` obtenu par le noeud Google Drive Download.
+
+### Sauvegarder la synthese formatee
+
+Ajouter un noeud `Convert to File` apres le noeud Ollama.
+
+Action:
+
+```text
+Convert to text file
+```
+
+Contenu:
+
+```text
+SYNTHESE
+{{$json.response}}
+```
+
+Nom du fichier:
+
+```javascript
+={{ "synthese-" + $now.toFormat("yyyy-MM-dd-HH-mm") + ".txt" }}
+```
+
+Propriete binaire de sortie:
+
+```text
+data
+```
+
+Ajouter ensuite un deuxieme noeud `Google Drive`.
+
+Configuration:
+
+```text
+Resource: File
+Operation: Upload
+Input Data Field Name: data
+Parent Drive: My Drive
+Parent Folder: dossier cible
+```
+
+### Autres options possibles
 
 - creer un Google Doc;
 - creer un fichier `.txt` dans Google Drive;
@@ -210,4 +284,3 @@ curl.exe -X POST "http://127.0.0.1:11434/api/generate" `
   -H "Content-Type: application/json" `
   -d "{\"model\":\"llama3.1\",\"stream\":false,\"prompt\":\"Resume ceci en francais: Ceci est une reunion de test.\"}"
 ```
-
