@@ -5,3 +5,4 @@ outputs/
 
 backups/
 *.dump
+sauvegarde_*.zip
