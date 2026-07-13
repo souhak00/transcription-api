@@ -7,6 +7,9 @@ Le processus GitHub, les environnements, les releases, les rollbacks et les sauv
 Le workflow n8n qui combine transcription et synthese Ollama est decrit dans [N8N_OLLAMA_WORKFLOW.md](./N8N_OLLAMA_WORKFLOW.md).
 La procedure complete de reprise, avec resultats attendus et tests de validation, est disponible dans [PROCEDURE_REPRISE_COMPLETE.md](./PROCEDURE_REPRISE_COMPLETE.md).
 Les actions pour ameliorer la qualite de transcription sont decrites dans [AMELIORER_TRANSCRIPTION.md](./AMELIORER_TRANSCRIPTION.md).
+Le modele de donnees client/representant et l'evolution CRM du POC sont decrits dans [CRM_HYPOTHECAIRE_POC.md](./CRM_HYPOTHECAIRE_POC.md).
+La feuille de route de l'assistant hypothecaire intelligent est disponible dans [ROADMAP_ASSISTANT_HYPOTHECAIRE.md](./ROADMAP_ASSISTANT_HYPOTHECAIRE.md).
+Le script PostgreSQL de depart pour la Phase 2 est disponible dans [database/001_crm_postgresql.sql](./database/001_crm_postgresql.sql).
 
 Le principe est volontairement simple:
 
@@ -103,12 +106,33 @@ Avec une commande personnalisee:
 
 ## Integration n8n avec Google Drive
 
-Le workflow recommande est:
+Le workflow recommande en production locale est un traitement en lot depuis un repertoire Google Drive:
 
-1. `Google Drive Trigger`: declenchement quand un fichier est cree ou modifie dans un dossier Drive.
-2. `Google Drive`: operation `Download` pour recuperer le fichier en binaire.
-3. `HTTP Request`: envoi du binaire a cette API.
-4. `Google Drive`, `Google Docs`, `Email` ou autre sortie: stockage ou notification avec la transcription.
+1. `Manual Trigger` ou `Schedule Trigger`: declenchement manuel ou planifie.
+2. `Chercher fichiers a traiter`: recherche les fichiers dans `01_A_TRAITER`.
+3. `Boucle fichiers`: traite un fichier a la fois.
+4. `Download file1`: telecharge le fichier courant en `binary.data`.
+5. `Edit Fields`: conserve `fileIdOriginal` et `fileNameOriginal`.
+6. `API - Transcription`: envoie le binaire a cette API.
+7. `Transcription Original`: sauvegarde la transcription brute dans Google Drive.
+8. `HTTP Request` vers Ollama: produit la synthese IA.
+9. `Transcription AI`: sauvegarde la synthese dans Google Drive.
+10. `Ollama - Extraction JSON client`: produit une fiche client hypothecaire structuree.
+11. `Parse JSON client`: prepare les champs pour la branche CRM.
+12. `PostgreSQL`: recherche par telephone/courriel, met a jour le client ou cree une nouvelle fiche.
+13. `Send a message`: envoie le courriel Gmail.
+14. `Recuperer ID fichier original`: merge `Edit Fields` et `Send a message`.
+15. `Move file`: deplace le fichier original vers `02_TRAITES`, puis la boucle passe au fichier suivant.
+
+Dossiers Google Drive recommandes:
+
+```text
+01_A_TRAITER
+02_TRAITES
+03_ERREURS
+```
+
+Le detail du workflow n8n, incluant les expressions, le noeud `Merge` et les erreurs frequentes, est documente dans [N8N_OLLAMA_WORKFLOW.md](./N8N_OLLAMA_WORKFLOW.md).
 
 ### n8n local
 

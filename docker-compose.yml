@@ -1,8 +1,42 @@
 services:
+  # Base de donnees PostgreSQL locale pour la phase CRM intelligent.
+  postgres-crm:
+    # Utilise l'image officielle PostgreSQL version 16.
+    image: postgres:16
+    # Donne un nom stable au conteneur pour le retrouver facilement.
+    container_name: postgres-crm
+    ports:
+      # Expose PostgreSQL sur la machine hote pour n8n local ou les tests psql.
+      - "5432:5432"
+    environment:
+      # Nom de la base creee automatiquement au premier demarrage.
+      POSTGRES_DB: transcription_crm
+      # Utilisateur applicatif utilise par n8n.
+      POSTGRES_USER: transcription_user
+      # Mot de passe local de developpement. A changer en production.
+      POSTGRES_PASSWORD: transcription_password
+    volumes:
+      # Conserve les donnees PostgreSQL meme si le conteneur est recrée.
+      - postgres_data:/var/lib/postgresql/data
+      # Execute le script SQL d'initialisation au premier demarrage du volume.
+      - ./database/001_crm_postgresql.sql:/docker-entrypoint-initdb.d/001_crm_postgresql.sql:ro
+      # Execute les regles d'acces applicatives au premier demarrage du volume.
+      - ./database/002_access_control.sql:/docker-entrypoint-initdb.d/002_access_control.sql:ro
+      # Execute la contrainte de format du code metier representant au premier demarrage du volume.
+      - ./database/003_representant_business_code.sql:/docker-entrypoint-initdb.d/003_representant_business_code.sql:ro
+    restart: unless-stopped
+
   # Service HTTP local appele par curl ou par le noeud HTTP Request de n8n.
   transcription-api:
     # Construit l'image depuis le Dockerfile du dossier courant.
-    build: .
+    build:
+      # Le contexte de build est le dossier courant, qui contient Dockerfile, src et scripts.
+      context: .
+      # Les arguments ci-dessous sont transmis au Dockerfile pendant la construction.
+      args:
+        # Utilise le grand modele francais Vosk pour ameliorer la precision de transcription.
+        # Le petit modele est plus rapide, mais il manque davantage de mots sur les audios reels.
+        VOSK_MODEL_URL: https://alphacephei.com/vosk/models/vosk-model-fr-0.22.zip
     container_name: transcription-api
     ports:
       # Rend le port de l'API accessible sur la machine hote.
@@ -22,3 +56,7 @@ services:
       # Conserve les transcriptions sur le disque meme si le conteneur est supprime.
       - ./outputs:/app/outputs
     restart: unless-stopped
+
+volumes:
+  # Volume Docker persistant qui stocke physiquement les donnees PostgreSQL.
+  postgres_data:
