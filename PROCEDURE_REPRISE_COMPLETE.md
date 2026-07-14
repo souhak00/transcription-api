@@ -815,6 +815,129 @@ Un nouveau ZIP de sauvegarde est cree sur la nouvelle machine.
 
 Une sauvegarde post-restauration a-t-elle ete creee et copiee hors de la machine?
 
+### 0.19 Installation et tests automatises
+
+#### Objectif
+
+Automatiser les etapes techniques repetitives de la reprise:
+
+```text
+verification prerequis
+demarrage Docker Compose
+test API transcription
+test PostgreSQL
+restauration optionnelle du dump
+test Ollama
+verification des exports n8n
+rapport de reprise
+```
+
+Les scripts ne peuvent pas automatiser completement:
+
+```text
+connexion OAuth Google Drive
+connexion OAuth Gmail
+import visuel du workflow n8n si l'API n8n n'est pas configuree
+validation des IDs de dossiers Google Drive
+```
+
+Ces points restent manuels pour des raisons de securite et d'authentification.
+
+#### Script de restauration
+
+Depuis la racine du projet:
+
+```powershell
+cd "C:\Users\Admin\Documents\Api Exraction d'audio"
+powershell -ExecutionPolicy Bypass -File ".\scripts\restore_solution.ps1"
+```
+
+Ce mode:
+
+```text
+demarre Docker;
+construit l'API;
+teste /health;
+teste PostgreSQL;
+verifie Ollama;
+verifie les fichiers n8n;
+ne restaure pas le dump par defaut.
+```
+
+#### Restauration complete avec dump PostgreSQL
+
+Utiliser ce mode uniquement quand on veut ecraser les donnees CRM locales par le dump sauvegarde:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\restore_solution.ps1" -RestoreDatabase
+```
+
+#### Restauration avec telechargement du modele Ollama
+
+Si `mistral-nemo:latest` est absent:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\restore_solution.ps1" -PullOllamaModel
+```
+
+#### Parametres utiles
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\restore_solution.ps1" `
+  -BackupDir ".\backups" `
+  -DumpFile "transcription_crm_2026-07-13.dump" `
+  -OllamaModel "mistral-nemo:latest" `
+  -RepresentantCode "2026999999"
+```
+
+#### Resultat attendu
+
+Le script affiche des lignes:
+
+```text
+OK - Dossier projet
+OK - API /health
+OK - Conteneur postgres-crm actif
+OK - Connexion PostgreSQL interne
+OK - Representant 2026999999 present
+OK - Workflow n8n versionne
+```
+
+Il cree aussi un rapport dans:
+
+```text
+backups\restore_report_YYYY-MM-DD_HHMMSS.txt
+```
+
+#### Script de tests
+
+Apres restauration et reconnexion des credentials n8n:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\test_solution.ps1"
+```
+
+#### Test avec fichier audio local
+
+Pour tester aussi l'API `/transcribe/upload`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\test_solution.ps1" `
+  -AudioFile "C:\Users\Admin\Music\Enregistrement.m4a"
+```
+
+#### Resultat attendu
+
+```text
+Tests reussis: ...
+Tests echoues: 0
+Tous les tests automatisables sont passes.
+```
+
+#### Question de validation
+
+Le script `restore_solution.ps1` termine-t-il avec les validations Docker, API, PostgreSQL, Ollama et n8n en `OK`?
+
 ## 1. Verifier les prerequis
 
 ### Objectif
