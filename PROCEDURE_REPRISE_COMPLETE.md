@@ -9,6 +9,812 @@ Cette procedure permet de reprendre le projet depuis le debut sans perdre le fil
 - la sauvegarde dans Google Drive;
 - la sauvegarde du code dans GitHub.
 
+## 0. Restaurer la solution complete sur une nouvelle machine
+
+Cette section permet de retrouver la solution dans les conditions de la derniere sauvegarde du 2026-07-13.
+
+Elle restaure:
+
+- le code source depuis GitHub;
+- la configuration Docker;
+- l'API de transcription;
+- le conteneur PostgreSQL CRM;
+- les donnees PostgreSQL depuis le dump;
+- le workflow n8n exporte;
+- les connexions n8n;
+- la chaine Google Drive -> API -> Ollama -> PostgreSQL -> Gmail.
+
+### 0.1 Recuperer les sauvegardes
+
+#### Objectif
+
+Recuperer les deux sources de sauvegarde:
+
+```text
+GitHub : code source, Docker, SQL, documentation, workflows n8n versionnes
+Google Drive / ZIP prive : dump PostgreSQL, export n8n, inventaire Docker, fiche de reprise
+```
+
+#### Actions
+
+Sur la nouvelle machine:
+
+1. Ouvrir Google Drive.
+2. Telecharger le fichier:
+
+```text
+sauvegarde_transcription_solution_2026-07-13.zip
+```
+
+3. Le placer temporairement dans:
+
+```text
+C:\Users\Admin\Downloads
+```
+
+4. Extraire le ZIP.
+
+#### Resultat attendu
+
+Le dossier extrait doit contenir au minimum:
+
+```text
+CONFIG_REPRISE_N8N_2026-07-13.txt
+n8n_workflow_transcription_local_batch_2026-07-13.json
+transcription_crm_2026-07-13.dump
+docker_containers_2026-07-13.txt
+docker_images_2026-07-13.txt
+docker_volumes_2026-07-13.txt
+docker_compose_resolved_2026-07-13.yml
+```
+
+#### Question de validation
+
+Les fichiers `transcription_crm_2026-07-13.dump` et `n8n_workflow_transcription_local_batch_2026-07-13.json` sont-ils presents dans le dossier extrait?
+
+### 0.2 Installer les prerequis sur la nouvelle machine
+
+#### Objectif
+
+Installer les outils necessaires pour executer la solution.
+
+#### Prerequis
+
+Installer:
+
+```text
+Git for Windows
+Docker Desktop
+Node.js 20 ou plus
+Ollama
+n8n local, soit via Docker, soit via installation locale
+Google Chrome ou Edge
+```
+
+#### Commandes de validation
+
+```powershell
+git --version
+docker version
+docker compose version
+node --version
+npm --version
+ollama --version
+```
+
+#### Resultat attendu
+
+Chaque commande doit afficher une version.
+
+#### Erreurs frequentes
+
+Si Docker retourne une erreur de type:
+
+```text
+dockerDesktopLinuxEngine
+```
+
+demarrer Docker Desktop et attendre que le moteur Linux soit actif.
+
+#### Question de validation
+
+Toutes les commandes de version retournent-elles une version sans erreur?
+
+### 0.3 Cloner le depot GitHub
+
+#### Objectif
+
+Restaurer le code source, les scripts SQL, la documentation, Docker Compose et les exports n8n versionnes.
+
+#### Commandes
+
+```powershell
+cd "C:\Users\Admin\Documents"
+git clone https://github.com/souhak00/transcription-api.git "Api Exraction d'audio"
+cd "C:\Users\Admin\Documents\Api Exraction d'audio"
+git checkout develop
+git pull origin develop
+```
+
+#### Resultat attendu
+
+Le dossier du projet contient:
+
+```text
+Dockerfile
+docker-compose.yml
+database
+n8n-workflows
+src
+scripts
+README.md
+ARCHITECTURE.md
+PROCEDURE_REPRISE_COMPLETE.md
+```
+
+#### Validation
+
+```powershell
+git status
+git log --oneline -3
+```
+
+Resultat attendu:
+
+```text
+On branch develop
+Your branch is up to date with 'origin/develop'.
+```
+
+Le journal Git doit contenir les commits de sauvegarde recents, par exemple:
+
+```text
+8350c24 Ignore local backup archives
+8568a78 Add n8n workflow export
+```
+
+#### Question de validation
+
+Le depot est-il bien clone sur la branche `develop` et a jour avec `origin/develop`?
+
+### 0.4 Copier les backups dans le projet
+
+#### Objectif
+
+Remettre les fichiers de sauvegarde prives dans le projet local, sans les publier dans GitHub.
+
+#### Commandes
+
+Adapter le chemin du dossier extrait si necessaire:
+
+```powershell
+cd "C:\Users\Admin\Documents\Api Exraction d'audio"
+New-Item -ItemType Directory -Force -Path ".\backups"
+Copy-Item "C:\Users\Admin\Downloads\backups\*" ".\backups" -Recurse -Force
+```
+
+Si le ZIP a ete extrait dans un dossier different, copier manuellement ces fichiers vers:
+
+```text
+C:\Users\Admin\Documents\Api Exraction d'audio\backups
+```
+
+#### Resultat attendu
+
+```powershell
+Get-ChildItem ".\backups" | Select-Object Name, Length
+```
+
+doit afficher:
+
+```text
+CONFIG_REPRISE_N8N_2026-07-13.txt
+n8n_workflow_transcription_local_batch_2026-07-13.json
+transcription_crm_2026-07-13.dump
+docker_containers_2026-07-13.txt
+docker_images_2026-07-13.txt
+docker_volumes_2026-07-13.txt
+docker_compose_resolved_2026-07-13.yml
+```
+
+#### Question de validation
+
+Le dossier `backups` local contient-il bien le dump PostgreSQL et l'export n8n?
+
+### 0.5 Demarrer Docker et reconstruire les conteneurs
+
+#### Objectif
+
+Recreer les conteneurs principaux:
+
+```text
+postgres-crm
+transcription-api
+```
+
+#### Commande
+
+```powershell
+cd "C:\Users\Admin\Documents\Api Exraction d'audio"
+docker compose up --build -d
+```
+
+#### Resultat attendu
+
+```powershell
+docker ps
+```
+
+doit afficher au minimum:
+
+```text
+postgres-crm       Up ...   0.0.0.0:5432->5432/tcp
+transcription-api  Up ...   0.0.0.0:3000->3000/tcp
+```
+
+#### Validation API
+
+```powershell
+curl.exe http://127.0.0.1:3000/health
+```
+
+Resultat attendu:
+
+```json
+{"ok":true}
+```
+
+#### Question de validation
+
+Les deux conteneurs `postgres-crm` et `transcription-api` sont-ils `Up`, et `/health` retourne-t-il `ok=true`?
+
+### 0.6 Restaurer PostgreSQL depuis le dump
+
+#### Objectif
+
+Restaurer les donnees CRM telles qu'elles etaient lors de la sauvegarde.
+
+#### Important
+
+Si le conteneur `postgres-crm` vient d'etre cree avec un volume neuf, les scripts SQL dans `database/` creent deja la structure. Le dump restaure ensuite les donnees.
+
+#### Commandes
+
+Copier le dump dans le conteneur:
+
+```powershell
+docker cp ".\backups\transcription_crm_2026-07-13.dump" postgres-crm:/tmp/transcription_crm_2026-07-13.dump
+```
+
+Nettoyer les donnees existantes de test avant restauration:
+
+```powershell
+docker exec -it postgres-crm psql -U transcription_user -d transcription_crm -c "truncate table documents_requis, taches, interactions, clients restart identity cascade;"
+```
+
+Restaurer le dump:
+
+```powershell
+docker exec -it postgres-crm pg_restore -U transcription_user -d transcription_crm --clean --if-exists /tmp/transcription_crm_2026-07-13.dump
+```
+
+#### Resultat attendu
+
+La restauration peut afficher des messages `DROP`, `CREATE`, `ALTER`, `INSERT` ou quelques avertissements si les objets existent deja. L'important est que la commande se termine sans erreur bloquante.
+
+#### Validation
+
+```powershell
+docker exec -it postgres-crm psql -U transcription_user -d transcription_crm -c "select count(*) as representants from representants; select count(*) as clients from clients; select count(*) as interactions from interactions; select count(*) as documents from documents_requis; select count(*) as taches from taches;"
+```
+
+Resultat attendu:
+
+```text
+representants > 0
+clients >= 0
+interactions >= 0
+documents >= 0
+taches >= 0
+```
+
+Verifier le representant de reference:
+
+```powershell
+docker exec -it postgres-crm psql -U transcription_user -d transcription_crm -c "select representant_id, code_representant, nom_representant from representants where code_representant = '2026999999';"
+```
+
+Resultat attendu:
+
+```text
+code_representant = 2026999999
+representant_id = 67f3b17e-8d00-4fd8-84a3-fa95fbcfe6cf
+```
+
+#### Question de validation
+
+La base restauree contient-elle bien le representant `2026999999`?
+
+### 0.7 Verifier ou reinstaller Ollama et le modele
+
+#### Objectif
+
+Retrouver la capacite de synthese et d'extraction JSON.
+
+#### Commandes
+
+Verifier les modeles disponibles:
+
+```powershell
+ollama list
+curl.exe http://127.0.0.1:11434/api/tags
+```
+
+#### Resultat attendu
+
+La liste doit contenir:
+
+```text
+mistral-nemo:latest
+```
+
+Si le modele est absent:
+
+```powershell
+ollama pull mistral-nemo:latest
+```
+
+#### Test rapide
+
+```powershell
+$body = @{ model = "mistral-nemo:latest"; stream = $false; prompt = "Retourne uniquement ce JSON: {`"test`":`"ok`"}" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/generate" -Method Post -ContentType "application/json" -Body $body
+```
+
+#### Resultat attendu
+
+La reponse contient:
+
+```text
+response : { "test": "ok" }
+done     : True
+```
+
+#### Question de validation
+
+Le modele `mistral-nemo:latest` est-il disponible et repond-il au test?
+
+### 0.8 Restaurer ou demarrer n8n local
+
+#### Objectif
+
+Retrouver l'interface n8n et importer le workflow sauvegarde.
+
+#### Option A - n8n deja installe localement
+
+Demarrer n8n comme auparavant, puis ouvrir:
+
+```text
+http://localhost:5678
+```
+
+#### Option B - n8n via Docker
+
+Si n8n est gere par un autre compose ou une installation separee, demarrer n8n selon sa procedure habituelle.
+
+#### Resultat attendu
+
+L'interface n8n s'ouvre.
+
+#### Question de validation
+
+n8n est-il accessible sur `http://localhost:5678`?
+
+### 0.9 Importer le workflow n8n sauvegarde
+
+#### Objectif
+
+Restaurer le workflow complet de traitement en lot.
+
+#### Action dans n8n
+
+1. Aller dans n8n.
+2. Cliquer sur `Workflows`.
+3. Choisir `Import from file`.
+4. Selectionner:
+
+```text
+C:\Users\Admin\Documents\Api Exraction d'audio\backups\n8n_workflow_transcription_local_batch_2026-07-13.json
+```
+
+ou utiliser la version Git:
+
+```text
+C:\Users\Admin\Documents\Api Exraction d'audio\n8n-workflows\transcription_local_batch_google_drive.json
+```
+
+#### Resultat attendu
+
+Le workflow apparait avec les noeuds:
+
+```text
+Chercher fichiers a traiter
+Boucle fichiers
+Download file1
+API - Transcription
+Ollama - Extraction JSON client
+Parse JSON client
+Construire metadata JSON
+Postgres - Rechercher client telephone
+Postgres - Rechercher client nom
+Postgres - Creer client
+Postgres - Mettre a jour client
+Postgres - Creer interaction
+Postgres - Creer documents requis
+Postgres - Creer taches
+Gmail - Alerte extraction incomplete
+Transcription Original
+Transcription AI
+Move file
+```
+
+#### Question de validation
+
+Le workflow importe contient-il bien les branches transcription, CRM, Gmail et gestion d'erreur?
+
+### 0.10 Reconnecter les credentials n8n
+
+#### Objectif
+
+Les exports n8n ne restaurent pas les secrets OAuth ou mots de passe. Il faut reconnecter les comptes.
+
+#### Credentials a recreer ou reconnecter
+
+```text
+Google Drive account
+Gmail account
+Postgres account
+Ollama account, si le noeud Ollama natif est utilise
+```
+
+#### Credential PostgreSQL
+
+Dans n8n:
+
+```text
+Credentials -> New -> PostgreSQL
+```
+
+Configuration:
+
+```text
+Host: host.docker.internal
+Port: 5432
+Database: transcription_crm
+User: transcription_user
+Password: transcription_password
+SSL: Off
+```
+
+#### Resultat attendu
+
+Le test du credential PostgreSQL affiche:
+
+```text
+Connection tested successfully
+```
+
+#### Google Drive et Gmail
+
+Reconnecter avec OAuth Google. Les URI OAuth doivent inclure:
+
+```text
+http://localhost:5678
+http://localhost:5678/rest/oauth2-credential/callback
+```
+
+Activer dans Google Cloud:
+
+```text
+Google Drive API
+Gmail API
+```
+
+#### Question de validation
+
+Les credentials Google Drive, Gmail et PostgreSQL sont-ils reconnectes sans erreur?
+
+### 0.11 Verifier les dossiers Google Drive
+
+#### Objectif
+
+S'assurer que les ID de dossiers utilises par le workflow existent toujours.
+
+#### Dossiers requis
+
+```text
+01_A_TRAITER
+02_TRAITES
+03_ERREURS_EXTRACTION
+```
+
+#### Actions
+
+Dans Google Drive:
+
+1. Ouvrir chaque dossier.
+2. Copier son ID depuis l'URL.
+3. Verifier dans les noeuds n8n que les champs `Parent Folder` utilisent les bons ID.
+
+#### Resultat attendu
+
+Les noeuds Google Drive suivants pointent vers les bons dossiers:
+
+```text
+Chercher fichiers a traiter -> 01_A_TRAITER
+Transcription Original -> dossier de sortie transcription
+Transcription AI -> dossier de sortie synthese
+Google Drive - Upload erreur extraction -> 03_ERREURS_EXTRACTION
+Move file -> 02_TRAITES
+```
+
+#### Question de validation
+
+Les ID de dossiers Drive dans n8n correspondent-ils aux dossiers de la nouvelle configuration?
+
+### 0.12 Tester l'API de transcription seule
+
+#### Objectif
+
+Valider Docker et l'API avant de tester n8n.
+
+#### Commande
+
+Utiliser un fichier audio de test local:
+
+```powershell
+curl.exe -X POST "http://127.0.0.1:3000/transcribe/upload" -F "file=@C:\Users\Admin\Music\Enregistrement.m4a" -F "language=fr"
+```
+
+#### Resultat attendu
+
+La reponse contient:
+
+```text
+transcript
+outputDir
+transcriptPath
+jsonPath
+metadataPath
+```
+
+#### Question de validation
+
+L'API retourne-t-elle une transcription avec `transcript`?
+
+### 0.13 Tester PostgreSQL depuis PowerShell
+
+#### Objectif
+
+Valider que la base est accessible depuis l'exterieur du conteneur.
+
+#### Commande
+
+```powershell
+docker run --rm -e PGPASSWORD=transcription_password postgres:16 psql -h host.docker.internal -U transcription_user -d transcription_crm -c "select current_user, current_database();"
+```
+
+#### Resultat attendu
+
+```text
+current_user       | transcription_user
+current_database   | transcription_crm
+```
+
+#### Question de validation
+
+La connexion PostgreSQL externe fonctionne-t-elle?
+
+### 0.14 Tester le workflow n8n complet
+
+#### Objectif
+
+Valider toute la chaine restauree.
+
+#### Action
+
+1. Placer un fichier audio dans `01_A_TRAITER`.
+2. Dans n8n, cliquer sur `Execute workflow`.
+
+#### Resultat attendu
+
+Le workflow doit:
+
+```text
+1. trouver le fichier dans Google Drive
+2. le telecharger en binary.data
+3. appeler l'API de transcription
+4. sauvegarder la transcription originale
+5. produire la synthese avec Ollama
+6. sauvegarder la synthese
+7. extraire le JSON client
+8. creer ou mettre a jour le client PostgreSQL
+9. creer une interaction
+10. creer les documents requis
+11. creer les taches
+12. envoyer le courriel Gmail
+13. deplacer le fichier vers 02_TRAITES
+```
+
+#### Validation PostgreSQL
+
+```powershell
+docker exec -it postgres-crm psql -U transcription_user -d transcription_crm -c "select c.nom_client, c.telephone, c.courriel, c.type_transaction, count(distinct i.interaction_id) as interactions, count(distinct d.document_id) as documents, count(distinct t.tache_id) as taches from clients c left join interactions i on i.client_id = c.client_id left join documents_requis d on d.client_id = c.client_id left join taches t on t.client_id = c.client_id group by c.client_id, c.nom_client, c.telephone, c.courriel, c.type_transaction order by c.updated_at desc;"
+```
+
+#### Resultat attendu
+
+```text
+Une ligne par client
+interactions >= 1
+documents >= 0
+taches >= 0
+```
+
+#### Question de validation
+
+Le workflow traite-t-il un fichier de bout en bout et cree-t-il une interaction PostgreSQL?
+
+### 0.15 Tester la deduplication
+
+#### Objectif
+
+Verifier que le workflow ne cree pas un doublon client lors d'un deuxieme appel.
+
+#### Action
+
+1. Remettre le meme fichier audio dans `01_A_TRAITER`.
+2. Relancer le workflow.
+
+#### Validation
+
+```powershell
+docker exec -it postgres-crm psql -U transcription_user -d transcription_crm -c "select c.nom_client, count(i.interaction_id) as nombre_interactions from clients c left join interactions i on i.client_id = c.client_id group by c.client_id, c.nom_client order by nombre_interactions desc;"
+```
+
+#### Resultat attendu
+
+Le client existant doit avoir:
+
+```text
+nombre_interactions = 2
+```
+
+et il ne doit pas y avoir deux fiches client identiques.
+
+#### Question de validation
+
+Le deuxieme traitement met-il a jour le client existant et ajoute-t-il seulement une nouvelle interaction?
+
+### 0.16 Tester la branche d'erreur extraction
+
+#### Objectif
+
+Valider que le workflow ne cree pas de client invalide si l'IA ne trouve pas de nom.
+
+#### Action
+
+Dans `IF - Nom client valide`, forcer temporairement:
+
+```javascript
+{{ false }}
+```
+
+Relancer le workflow avec un fichier de test.
+
+#### Resultat attendu
+
+Le workflow doit executer:
+
+```text
+Gmail - Alerte extraction incomplete
+Convert erreur extraction to File
+Google Drive - Upload erreur extraction
+```
+
+et ne doit pas executer:
+
+```text
+Postgres - Creer client
+```
+
+Remettre ensuite la vraie condition:
+
+```javascript
+{{
+  !!$("Construire metadata JSON").item.json.metadata.database_payload.client_record.nom_client &&
+  $("Construire metadata JSON").item.json.metadata.database_payload.client_record.nom_client !== "undefined" &&
+  $("Construire metadata JSON").item.json.metadata.database_payload.client_record.nom_client !== "null"
+}}
+```
+
+#### Validation PostgreSQL
+
+```powershell
+docker exec -it postgres-crm psql -U transcription_user -d transcription_crm -c "select nom_client, telephone, courriel from clients where nom_client in ('undefined', 'null', '') or nom_client is null or telephone = 'undefined' or courriel = 'undefined';"
+```
+
+#### Resultat attendu
+
+```text
+(0 rows)
+```
+
+#### Question de validation
+
+La branche d'erreur cree-t-elle un fichier dans Drive et aucun client invalide?
+
+### 0.17 Checklist finale de restauration nouvelle machine
+
+```text
+[ ] ZIP prive recupere depuis Google Drive
+[ ] Depot GitHub clone sur develop
+[ ] Dossier backups restaure localement
+[ ] Docker Desktop demarre
+[ ] docker compose up --build -d execute
+[ ] postgres-crm Up
+[ ] transcription-api Up
+[ ] API /health retourne ok=true
+[ ] Dump PostgreSQL restaure
+[ ] Representant 2026999999 present
+[ ] Ollama installe
+[ ] mistral-nemo:latest disponible
+[ ] n8n accessible sur localhost:5678
+[ ] Workflow n8n importe
+[ ] Credentials Google Drive reconnectes
+[ ] Credentials Gmail reconnectes
+[ ] Credential PostgreSQL reconnecte
+[ ] Dossiers Drive 01_A_TRAITER, 02_TRAITES, 03_ERREURS_EXTRACTION valides
+[ ] API testee avec curl
+[ ] Workflow n8n execute avec succes
+[ ] Client cree ou mis a jour dans PostgreSQL
+[ ] Interaction creee
+[ ] Documents requis crees
+[ ] Taches creees
+[ ] Courriel Gmail recu
+[ ] Fichier original deplace vers 02_TRAITES
+[ ] Deduplication validee
+[ ] Branche erreur extraction validee
+```
+
+### 0.18 Sauvegarde apres restauration
+
+#### Objectif
+
+Une fois la nouvelle machine fonctionnelle, recreer une sauvegarde locale actualisee.
+
+#### Commandes
+
+```powershell
+cd "C:\Users\Admin\Documents\Api Exraction d'audio"
+New-Item -ItemType Directory -Force -Path ".\backups"
+docker exec postgres-crm pg_dump -U transcription_user -d transcription_crm -F c -f /tmp/transcription_crm.dump
+docker cp postgres-crm:/tmp/transcription_crm.dump ".\backups\transcription_crm_$(Get-Date -Format yyyy-MM-dd).dump"
+docker ps -a > ".\backups\docker_containers_$(Get-Date -Format yyyy-MM-dd).txt"
+docker images > ".\backups\docker_images_$(Get-Date -Format yyyy-MM-dd).txt"
+docker volume ls > ".\backups\docker_volumes_$(Get-Date -Format yyyy-MM-dd).txt"
+docker compose config > ".\backups\docker_compose_resolved_$(Get-Date -Format yyyy-MM-dd).yml"
+Compress-Archive -Path ".\backups" -DestinationPath ".\sauvegarde_transcription_solution_$(Get-Date -Format yyyy-MM-dd).zip" -Force
+```
+
+#### Resultat attendu
+
+Un nouveau ZIP de sauvegarde est cree sur la nouvelle machine.
+
+#### Question de validation
+
+Une sauvegarde post-restauration a-t-elle ete creee et copiee hors de la machine?
+
 ## 1. Verifier les prerequis
 
 ### Objectif
