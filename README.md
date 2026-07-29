@@ -1,254 +1,130 @@
-# Extraction audio et transcription locale
+# Transcription locale et CRM hypothécaire
 
-Solution Node.js locale pour extraire l'audio d'un fichier video/audio avec FFmpeg, puis produire une transcription sans LLM et sans API distante.
+Ce dépôt réunit une API de transcription locale et les composants d'un futur agent
+conversationnel pour le courtage hypothécaire.
 
-Les schemas de composants, de flux n8n et de deploiement par conteneurs sont disponibles dans [ARCHITECTURE.md](./ARCHITECTURE.md).
-Le processus GitHub, les environnements, les releases, les rollbacks et les sauvegardes sont decrits dans [GITHUB_PROCESS.md](./GITHUB_PROCESS.md).
-Le workflow n8n qui combine transcription et synthese Ollama est decrit dans [N8N_OLLAMA_WORKFLOW.md](./N8N_OLLAMA_WORKFLOW.md).
-La procedure complete de reprise, avec resultats attendus et tests de validation, est disponible dans [PROCEDURE_REPRISE_COMPLETE.md](./PROCEDURE_REPRISE_COMPLETE.md).
-Les actions pour ameliorer la qualite de transcription sont decrites dans [AMELIORER_TRANSCRIPTION.md](./AMELIORER_TRANSCRIPTION.md).
-Le modele de donnees client/representant et l'evolution CRM du POC sont decrits dans [CRM_HYPOTHECAIRE_POC.md](./CRM_HYPOTHECAIRE_POC.md).
-La feuille de route de l'assistant hypothecaire intelligent est disponible dans [ROADMAP_ASSISTANT_HYPOTHECAIRE.md](./ROADMAP_ASSISTANT_HYPOTHECAIRE.md).
-Le script PostgreSQL de depart pour la Phase 2 est disponible dans [database/001_crm_postgresql.sql](./database/001_crm_postgresql.sql).
+La solution actuelle sait :
 
-Le principe est volontairement simple:
+- convertir un média avec FFmpeg et le transcrire localement avec Vosk;
+- orchestrer un traitement en lot depuis Google Drive avec n8n;
+- utiliser Ollama pour produire une synthèse et extraire une fiche client JSON;
+- créer ou enrichir un client PostgreSQL, puis consigner l'interaction, les
+  documents requis et les tâches de suivi;
+- archiver les livrables dans Google Drive et notifier le représentant.
 
-1. FFmpeg convertit le media en WAV mono 16 kHz.
-2. Une commande locale de speech-to-text transcrit le WAV.
-3. Optionnellement, pyannote ajoute les etiquettes de locuteurs.
-4. Le projet ecrit `transcript.txt`, `transcription.json` et `metadata.json`.
+## Architecture v2
 
-## Prerequis en local
+Les responsabilités sont volontairement séparées :
 
-- Node.js 20 ou plus.
-- FFmpeg installe et disponible dans le `PATH`.
-- Un moteur de transcription local disponible en ligne de commande.
+| Composant | Responsabilité |
+| --- | --- |
+| API Node.js | Exposer la transcription locale par HTTP |
+| FFmpeg + Vosk | Normaliser l'audio et produire la transcription brute |
+| Ollama | Comprendre l'intention, extraire les données et générer les réponses |
+| n8n | Orchestrer les étapes, les intégrations et les reprises |
+| PostgreSQL | Porter les données et les services métier CRM |
+| Google Drive / Gmail | Entrées, archivage et notifications du workflow actuel |
 
-Dans Docker, ces dependances sont installees dans l'image. En execution locale hors Docker, vous devez les installer sur votre machine.
+PostgreSQL est la frontière métier. À terme, n8n ne doit plus assembler des
+requêtes CRUD complexes : il appelle des fonctions CRM qui appliquent les règles
+de déduplication, de validation et d'historisation et qui retournent un document
+`json`/`jsonb` stable. n8n reste l'orchestrateur et ne devient pas la couche
+métier.
 
-## Configuration
-
-Copier `.env.example` vers `.env`, puis adapter la commande si besoin:
-
-```env
-TRANSCRIBER_COMMAND=python3
-TRANSCRIBER_ARGS=scripts/vosk_transcribe.py --model /opt/vosk-model --input {input} --output {output} {diarizeArgs} {diarizationModelArgs}
-DIARIZATION_MODEL=pyannote/speaker-diarization-3.1
+```mermaid
+flowchart LR
+    Channel["Canal ou audio"] --> N8N["n8n<br/>orchestration"]
+    N8N --> STT["API de transcription<br/>FFmpeg + Vosk"]
+    STT --> N8N
+    N8N --> Ollama["Ollama<br/>intention, extraction, réponse"]
+    Ollama --> N8N
+    N8N --> PG["PostgreSQL<br/>fonctions CRM → JSON"]
+    PG --> N8N
+    N8N --> Output["Drive, Gmail ou canal conversationnel"]
 ```
 
-Les variables `{input}` et `{output}` sont remplacees par le chemin du WAV extrait et le chemin du fichier texte attendu. Les variables `{diarizeArgs}` et `{diarizationModelArgs}` sont remplies uniquement quand la diarisation est activee.
+Voir [ARCHITECTURE.md](./ARCHITECTURE.md) pour les frontières, les flux et
+l'état actuel par rapport à la cible.
 
-## Utilisation CLI
+## Workflow de transcription existant
+
+Le workflow historique
+[`n8n-workflows/Transcription_Local_2026-06-03-0702.json`](./n8n-workflows/Transcription_Local_2026-06-03-0702.json)
+enchaîne téléchargement Drive, transcription, synthèse Ollama et sauvegarde des
+deux textes. Le workflow en lot
+[`n8n-workflows/transcription_local_batch_google_drive.json`](./n8n-workflows/transcription_local_batch_google_drive.json)
+ajoute la boucle Drive, l'extraction JSON, le CRM PostgreSQL, Gmail et le
+déplacement du fichier traité.
+
+Le workflow exporté est inactif par défaut : son import, ses identifiants Drive,
+ses credentials et son activation restent des opérations d'environnement.
+
+## Workflow CRM validé
+
+Après l'extraction Ollama, le workflow en lot :
+
+1. normalise le JSON client;
+2. recherche le client par représentant et téléphone;
+3. utilise le courriel, puis le nom comme repli;
+4. refuse une création sans nom exploitable;
+5. crée ou enrichit le client sans écraser une valeur existante par `null`;
+6. crée une interaction pour chaque appel;
+7. crée les documents requis et les tâches;
+8. alerte et archive un diagnostic si l'extraction est insuffisante.
+
+Ce flux constitue la référence fonctionnelle validée. Les nœuds PostgreSQL
+contiennent encore du SQL direct. La prochaine étape d'architecture consiste à
+encapsuler ce comportement dans les fonctions JSON décrites dans
+[`docs/SERVICES_POSTGRESQL.md`](./docs/SERVICES_POSTGRESQL.md).
+
+## Démarrage local
+
+Prérequis : Docker Compose, ou Node.js 20+, FFmpeg et un moteur Vosk local.
 
 ```powershell
-npm.cmd run transcribe -- "C:\chemin\vers\video.mp4" --language fr
-```
-
-Avec diarisation:
-
-```powershell
-npm.cmd run transcribe -- "C:\chemin\vers\reunion.mp4" --language fr --diarize
-```
-
-Avec une autre commande locale:
-
-```powershell
-npm.cmd run transcribe -- "C:\chemin\vers\audio.mp3" `
-  --command "mon-transcripteur.exe" `
-  --command-args "--input {input} --output {output}"
-```
-
-Les resultats sont crees dans `outputs/<timestamp>/`:
-
-- `transcript.txt`: transcription lisible.
-- `transcription.json`: details de chaque execution locale.
-- `metadata.json`: details du traitement.
-
-## Utilisation API locale
-
-Demarrer le serveur:
-
-```powershell
-npm.cmd start
-```
-
-Verifier l'etat:
-
-```powershell
-curl http://127.0.0.1:3000/health
-```
-
-Lancer une transcription:
-
-```powershell
-curl -X POST http://127.0.0.1:3000/transcribe `
-  -H "Content-Type: application/json" `
-  -d "{\"inputPath\":\"C:\\chemin\\vers\\video.mp4\",\"language\":\"fr\"}"
-```
-
-Avec diarisation via upload multipart:
-
-```powershell
-curl -X POST http://127.0.0.1:3000/transcribe/upload `
-  -F "file=@C:\chemin\vers\reunion.mp4" `
-  -F "diarize=true"
-```
-
-Avec une commande personnalisee:
-
-```json
-{
-  "inputPath": "C:\\chemin\\vers\\video.mp4",
-  "command": "mon-transcripteur.exe",
-  "commandArgs": "--input {input} --output {output}"
-}
-```
-
-## Integration n8n avec Google Drive
-
-Le workflow recommande en production locale est un traitement en lot depuis un repertoire Google Drive:
-
-1. `Manual Trigger` ou `Schedule Trigger`: declenchement manuel ou planifie.
-2. `Chercher fichiers a traiter`: recherche les fichiers dans `01_A_TRAITER`.
-3. `Boucle fichiers`: traite un fichier a la fois.
-4. `Download file1`: telecharge le fichier courant en `binary.data`.
-5. `Edit Fields`: conserve `fileIdOriginal` et `fileNameOriginal`.
-6. `API - Transcription`: envoie le binaire a cette API.
-7. `Transcription Original`: sauvegarde la transcription brute dans Google Drive.
-8. `HTTP Request` vers Ollama: produit la synthese IA.
-9. `Transcription AI`: sauvegarde la synthese dans Google Drive.
-10. `Ollama - Extraction JSON client`: produit une fiche client hypothecaire structuree.
-11. `Parse JSON client`: prepare les champs pour la branche CRM.
-12. `PostgreSQL`: recherche par telephone/courriel, met a jour le client ou cree une nouvelle fiche.
-13. `Send a message`: envoie le courriel Gmail.
-14. `Recuperer ID fichier original`: merge `Edit Fields` et `Send a message`.
-15. `Move file`: deplace le fichier original vers `02_TRAITES`, puis la boucle passe au fichier suivant.
-
-Dossiers Google Drive recommandes:
-
-```text
-01_A_TRAITER
-02_TRAITES
-03_ERREURS
-```
-
-Le detail du workflow n8n, incluant les expressions, le noeud `Merge` et les erreurs frequentes, est documente dans [N8N_OLLAMA_WORKFLOW.md](./N8N_OLLAMA_WORKFLOW.md).
-
-### n8n local
-
-Si n8n et cette API tournent sur la meme machine, deux options sont possibles:
-
-- Envoyer le fichier binaire vers `http://127.0.0.1:3000/transcribe/upload`.
-- Donner un chemin local a `/transcribe` si le fichier existe deja sur le meme disque.
-
-Configuration du noeud `HTTP Request` pour l'upload:
-
-- Method: `POST`
-- URL: `http://127.0.0.1:3000/transcribe/upload`
-- Send Body: active
-- Body Content Type: `Form-Data`
-- Parameter Type: `n8n Binary File`
-- Name: `file`
-- Input Data Field Name: le nom de la propriete binaire creee par Google Drive, souvent `data`
-
-Ajouter au besoin des champs texte dans le form-data:
-
-- `language`: `fr`
-- `diarize`: `true`
-- `segmentSeconds`: `600`
-- `keepAudio`: `false`
-
-### n8n infonuagique
-
-n8n Cloud ne peut pas appeler `127.0.0.1` sur votre ordinateur. L'API doit etre exposee sur une URL HTTPS accessible publiquement, par exemple:
-
-- une VM ou un conteneur chez un fournisseur cloud;
-- un serveur interne expose via un tunnel securise;
-- une plateforme de conteneurs capable d'installer FFmpeg et le moteur de transcription local.
-
-Dans ce cas, le noeud `HTTP Request` pointe vers:
-
-```text
-https://votre-domaine.example/transcribe/upload
-```
-
-Le fichier Google Drive reste traite sans LLM: n8n Cloud envoie seulement le binaire a votre service, puis le service execute FFmpeg et le moteur local configure par `TRANSCRIBER_COMMAND`.
-
-Un `Dockerfile` est fourni. Il installe Node.js, FFmpeg, Vosk et le modele francais `vosk-model-small-fr-0.22`.
-
-```powershell
-docker build -t transcription-locale .
-docker run --rm -p 3000:3000 --env-file .env transcription-locale
-```
-
-Pour inclure la diarisation pyannote dans l'image:
-
-```powershell
-docker build --build-arg INSTALL_DIARIZATION=true -t transcription-locale .
-docker run --rm -p 3000:3000 --env-file .env transcription-locale
-```
-
-Si le modele pyannote demande une authentification, ajoutez un token Hugging Face dans `.env` apres avoir accepte les conditions du modele:
-
-```env
-HUGGINGFACE_TOKEN=hf_...
-```
-
-Test rapide:
-
-```powershell
-curl http://127.0.0.1:3000/health
-```
-
-Avec Docker Compose:
-
-```powershell
+Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Avec diarisation:
+Services par défaut :
+
+- API : `http://localhost:3000`
+- santé : `GET http://localhost:3000/health`
+- PostgreSQL : `localhost:5432`, base `transcription_crm`
+
+Exemple de transcription :
 
 ```powershell
-docker compose build --build-arg INSTALL_DIARIZATION=true
-docker compose up
+curl.exe -X POST http://localhost:3000/transcribe/upload `
+  -F "file=@C:\audio\appel.m4a" `
+  -F "language=fr"
 ```
 
-L'API ecoute ensuite sur:
-
-```text
-http://127.0.0.1:3000
-```
-
-Puis, depuis n8n, envoyez le fichier Google Drive telecharge en binaire vers:
-
-```text
-http://host.docker.internal:3000/transcribe/upload
-```
-
-Si n8n tourne aussi dans Docker, mettez les deux conteneurs sur le meme reseau Docker et appelez l'API par le nom du service, par exemple:
-
-```text
-http://transcription-api:3000/transcribe/upload
-```
-
-### Variante JSON base64
-
-Si votre workflow n8n transforme deja le fichier en base64, vous pouvez appeler `/transcribe`:
+Réponse :
 
 ```json
 {
-  "filename": "reunion.mp4",
-  "fileBase64": "AAAA...",
-  "language": "fr"
+  "outputDir": "/app/outputs/...",
+  "transcriptPath": "/app/outputs/.../transcript.txt",
+  "jsonPath": "/app/outputs/.../transcription.json",
+  "metadataPath": "/app/outputs/.../metadata.json",
+  "transcript": "..."
 }
 ```
 
-L'upload multipart reste preferable pour les gros fichiers.
+La transcription brute est la source de vérité. Ollama ne doit jamais inventer
+une donnée absente; les valeurs inconnues restent `null` ou sont placées dans
+`points_a_valider`.
 
-## Notes
+## Documentation
 
-- Aucun appel a un LLM ni a une API cloud n'est effectue par ce projet.
-- La diarisation est optionnelle. Elle utilise pyannote localement dans le conteneur quand l'image est construite avec `INSTALL_DIARIZATION=true`.
-- Le serveur accepte un chemin local (`inputPath`), un upload multipart (`/transcribe/upload`) ou un fichier JSON base64 (`fileBase64`).
-- Par defaut, le WAV intermediaire est supprime apres transcription. Ajouter `--keep-audio` ou `keepAudio: true` pour le conserver.
-- Si le transcripteur local supporte mal les longs fichiers, utilisez `--segment-seconds 600` pour segmenter l'audio.
+- [Architecture](./ARCHITECTURE.md)
+- [Feuille de route](./docs/ROADMAP.md)
+- [Services métier PostgreSQL](./docs/SERVICES_POSTGRESQL.md)
+- [Workflows n8n](./docs/WORKFLOWS_N8N.md)
+- [ADR-001 — PostgreSQL comme couche métier](./docs/ADR/ADR-001-postgresql-couche-metier.md)
+- [ADR-002 — n8n comme orchestrateur](./docs/ADR/ADR-002-n8n-orchestrateur.md)
+- [ADR-003 — JSON comme format interne](./docs/ADR/ADR-003-json-format-interne.md)
+
+Les guides historiques restent utiles pour l'exploitation et la reprise. En cas
+de divergence sur l'architecture cible, les documents ci-dessus font foi.
