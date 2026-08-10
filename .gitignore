@@ -2,6 +2,7 @@ node_modules/
 web/dist/
 .env
 outputs/
+.runtime/
 *.log
 
 backups/
