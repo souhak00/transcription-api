@@ -1,4 +1,20 @@
 services:
+  # Gestionnaire d’identité OIDC local du portail CRM.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.0
+    container_name: keycloak-crm
+    command: start-dev --import-realm
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak/realm-crm-local.json:/opt/keycloak/data/import/realm-crm-local.json:ro
+    restart: unless-stopped
+
   # Base de donnees PostgreSQL locale pour la phase CRM intelligent.
   postgres-crm:
     # Utilise l'image officielle PostgreSQL version 16.
@@ -52,6 +68,18 @@ services:
       # HUGGINGFACE_TOKEN est requis si le modele pyannote choisi est protege.
       # HUGGINGFACE_TOKEN: hf_xxx
       MAX_UPLOAD_BODY_MB: 512
+      # L API relaie les messages Web vers n8n; le navigateur ne connait pas cette URL.
+      N8N_AGENT_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agent-chat
+      N8N_RECENT_CLIENTS_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/clients-recents
+      N8N_CLIENT_DOSSIER_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/dossier-client
+      AGENT_TIMEOUT_MS: 120000
+      # L’API valide les jetons Keycloak et extrait le representant_id signé.
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/crm-local
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/crm-local/protocol/openid-connect/certs
+      KEYCLOAK_AUDIENCE: crm-api
+      KEYCLOAK_PUBLIC_URL: http://localhost:8080
+      KEYCLOAK_REALM: crm-local
+      KEYCLOAK_CLIENT_ID: crm-web
     volumes:
       # Conserve les transcriptions sur le disque meme si le conteneur est supprime.
       - ./outputs:/app/outputs
@@ -60,3 +88,5 @@ services:
 volumes:
   # Volume Docker persistant qui stocke physiquement les donnees PostgreSQL.
   postgres_data:
+  # Persiste la configuration et les utilisateurs du gestionnaire d’identité local.
+  keycloak_data:

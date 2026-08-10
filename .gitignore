@@ -1,8 +1,10 @@
 node_modules/
+web/dist/
 .env
 outputs/
 *.log
 
 backups/
+backup/*.json
 *.dump
 sauvegarde_*.zip

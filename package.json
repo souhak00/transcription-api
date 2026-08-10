@@ -7,9 +7,15 @@
   "scripts": {
     "start": "node src/server.js",
     "transcribe": "node src/cli.js",
-    "check": "node --check src/audio.js && node --check src/env.js && node --check src/localTranscriber.js && node --check src/upload.js && node --check src/transcribe.js && node --check src/server.js && node --check src/cli.js"
+    "check": "node --check src/agent.js && node --check src/audio.js && node --check src/env.js && node --check src/localTranscriber.js && node --check src/upload.js && node --check src/transcribe.js && node --check src/server.js && node --check src/cli.js",
+    "test": "node --test tests/node/*.test.js",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "jose": "^6.2.8"
   }
 }
