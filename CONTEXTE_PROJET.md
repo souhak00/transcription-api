@@ -1,7 +1,7 @@
 # Plateforme IA Hypothécaire
 ## Contexte du projet
 
-**Dernière mise à jour :** 2026-07-28
+**Dernière mise à jour :** 2026-07-30
 
 ---
 
@@ -42,11 +42,15 @@ Utilisateur
 
 ↓
 
-Interface Web / Chat
+Interface Web authentifiée
 
 ↓
 
-Ollama
+Keycloak local (OpenID Connect + PKCE)
+
+↓
+
+API REST Node.js / Express
 
 ↓
 
@@ -60,6 +64,26 @@ Services PostgreSQL
 
 Base CRM
 
+n8n transmet à Ollama uniquement le contexte JSON autorisé nécessaire à la
+compréhension de l’intention et à la génération de la réponse.
+
+Architecture cible de référence :
+
+```text
+Utilisateur
+→ Interface Web React
+→ Authentification
+→ JWT validé + representant_id établi par le serveur
+→ Agent conversationnel avec outils CRM
+→ n8n
+→ services PostgreSQL crm.*
+→ PostgreSQL + RLS
+```
+
+Outils CRM initiaux de l’agent : rechercher un client, obtenir ses documents
+et obtenir ses tâches. Le navigateur, l’agent, Ollama et n8n ne lisent jamais
+directement les tables CRM.
+
 ---
 
 # Technologies
@@ -69,6 +93,13 @@ Base CRM
 - Node.js
 - Express
 - PostgreSQL
+
+## Identité
+
+- Keycloak
+- OpenID Connect
+- JWT RS256
+- Authorization Code avec PKCE
 
 ## IA
 
@@ -135,8 +166,35 @@ Fonctions validées :
 - crm.obtenir_documents()
 - crm.obtenir_taches()
 - crm.obtenir_etat_dossier()
+- crm.obtenir_derniers_clients()
+- crm.rechercher_clients_agent()
+- crm.obtenir_documents_client()
+- crm.obtenir_taches_client()
+- crm.obtenir_dossier_client()
 
 Toutes les fonctions retournent du JSON.
+
+Définitions versionnées :
+
+- `database/004_crm_services.sql`
+- `database/006_derniers_clients.sql`
+- `database/007_recherche_clients_minimisee.sql`
+- `database/008_code_client_metier.sql`
+
+Chaque client possède aussi un identifiant métier immuable au format
+`CLI-AAAA-II-NNNNNN`, par exemple `CLI-2026-OB-000012`. L’UUID reste interne;
+les outils conversationnels utilisent le `code_client`.
+
+Sécurité appliquée durablement et tests complétés jusqu’au 9 août 2026 :
+
+- `database/005_crm_runtime_security.sql`
+- rôle non privilégié `crm_runtime`
+- test d’isolation entre représentants
+- fonctions `crm.*` détenues par `crm_service_owner` en `SECURITY DEFINER`
+- aucun accès direct de `crm_runtime` aux tables
+- mot de passe local de `crm_runtime` défini hors dépôt
+- quatre appels d’outils validés sous `crm_runtime` : recherche, documents,
+  tâches et derniers clients
 
 ---
 
@@ -171,6 +229,23 @@ IA - Résumer état du dossier
 ↓
 
 Réponse CRM
+
+---
+
+Workflow importé dans n8n :
+
+- nom : `CRM - État du dossier - Validation`
+- identifiant : `CrmEtatDossierV1`
+- état n8n : importé, non publié et exécutable manuellement dans l’éditeur
+- contexte du test : `app.role = representant` et `representant_id` local;
+  l’architecture cible remplacera cette valeur par l’identité issue du JWT
+- exécution complète réussie le 2026-07-30
+- PostgreSQL et Ollama validés de bout en bout
+
+Limite actuelle :
+
+- entrée manuelle avec le terme fixe `Tremblay`
+- trois variantes du nom nécessitent une clarification dans l’agent cible
 
 ---
 
@@ -218,11 +293,51 @@ Envoi Gmail
 
 ✔ Résumé IA
 
+✔ Interface React responsive construite et validée visuellement
+
+✔ Route serveur `POST /api/agent/messages` testée unitairement
+
+✔ Workflow Web de l’agent publié temporairement en local, sans JWT, pour la
+validation autorisée du MVP le 2026-08-09
+
+✔ Workflow manuel de l’agent enrichi d’un routeur d’intention à quatre sorties :
+clients récents, documents, tâches et conversation libre
+
+✔ Clients récents, documents et tâches validés par appels PostgreSQL
+déterministes; Ollama demeure réservé à la compréhension et à la réponse libre
+
+✔ Affichage structuré d’un dossier client par nom ou `code_client`, avec profil,
+documents, tâches et prochaine action, sans UUID
+
+✔ Commande conversationnelle « afficher le dossier CLI-… » routée de façon
+déterministe vers `crm.obtenir_dossier_client()`
+
+✔ Services PostgreSQL JSON versionnés
+
+✔ Jeu de démonstration local : 12 clients, 3 interactions, 4 documents et
+3 tâches fictives
+
+✔ Workflow CRM réimportable et exécuté
+
+✔ Migration d’isolation validée en transaction annulée
+
+✔ Workflow d’entrée texte versionné, publié, actif et testé
+
+✔ Validation déterministe des preuves avant utilisation des faits par le CRM
+
+✔ Analyse complète de 57 445 caractères : 5 segments, 0 JSON invalide et
+8 faits prévalidés, sans écriture automatique dans PostgreSQL
+
 ---
 
 ## À développer
 
-- Agent conversationnel CRM
+- Remplacer l’identité de démonstration par un `representant_id` issu d’un JWT
+  validé côté serveur, puis retirer l’accès local temporaire sans JWT.
+
+- Étendre le routage déterministe seulement aux nouvelles actions métier qui
+  exigent une réponse reproductible. Les questions libres restent
+  interprétées par `mistral-nemo`.
 
 - Gestion documentaire
 
@@ -234,7 +349,17 @@ Envoi Gmail
 
 - API REST complète
 
-- Interface Web
+- Désactivation du webhook Web après la démonstration ou protection par JWT
+  avant toute exposition hors de l’environnement local
+
+- Création et association dans n8n de l’identifiant `Postgres CRM Runtime`
+  avec le secret externe déjà défini côté PostgreSQL
+
+- Transmission d’un contexte représentant provenant d’une authentification
+
+- Entrée webhook/API pour les questions libres
+
+- Gestion des résultats absents ou ambigus
 
 ---
 

@@ -1,8 +1,14 @@
-# Extraction audio et transcription locale
+# Plateforme IA hypothécaire locale
 
-Solution Node.js locale pour extraire l'audio d'un fichier video/audio avec FFmpeg, puis produire une transcription sans LLM et sans API distante.
+Plateforme locale combinant une API Node.js de transcription, un CRM
+PostgreSQL, des workflows n8n et Ollama. Le service de transcription extrait
+l’audio avec FFmpeg et produit une transcription locale; la couche CRM expose
+ses services métier sous forme de fonctions PostgreSQL retournant du JSON.
 
-Les schemas de composants, de flux n8n et de deploiement par conteneurs sont disponibles dans [ARCHITECTURE.md](./ARCHITECTURE.md).
+L’architecture actuelle, la cible MVP, les frontières de sécurité et les écarts
+connus sont documentés dans [ARCHITECTURE.md](./ARCHITECTURE.md). Le contexte
+permanent du projet se trouve dans
+[CONTEXTE_PROJET.md](./CONTEXTE_PROJET.md).
 Le processus GitHub, les environnements, les releases, les rollbacks et les sauvegardes sont decrits dans [GITHUB_PROCESS.md](./GITHUB_PROCESS.md).
 Le workflow n8n qui combine transcription et synthese Ollama est decrit dans [N8N_OLLAMA_WORKFLOW.md](./N8N_OLLAMA_WORKFLOW.md).
 La procedure complete de reprise, avec resultats attendus et tests de validation, est disponible dans [PROCEDURE_REPRISE_COMPLETE.md](./PROCEDURE_REPRISE_COMPLETE.md).
@@ -10,6 +16,128 @@ Les actions pour ameliorer la qualite de transcription sont decrites dans [AMELI
 Le modele de donnees client/representant et l'evolution CRM du POC sont decrits dans [CRM_HYPOTHECAIRE_POC.md](./CRM_HYPOTHECAIRE_POC.md).
 La feuille de route de l'assistant hypothecaire intelligent est disponible dans [ROADMAP_ASSISTANT_HYPOTHECAIRE.md](./ROADMAP_ASSISTANT_HYPOTHECAIRE.md).
 Le script PostgreSQL de depart pour la Phase 2 est disponible dans [database/001_crm_postgresql.sql](./database/001_crm_postgresql.sql).
+
+## État du MVP
+
+- API locale de transcription : fonctionnelle.
+- PostgreSQL et services métier `crm.*` : fonctionnels.
+- Workflow n8n CRM `CrmEtatDossierV1` : importé et exécuté avec succès.
+- Workflow texte `CrmAnalyseTexteV1` : publié; prévalidation JSON séquentielle,
+  preuves verbatim, liste blanche CRM et validation humaine obligatoire.
+- Ollama `mistral-nemo` : réponse française validée à partir du JSON CRM.
+- Isolation RLS : politiques forcées, rôles `crm_service_owner` et
+  `crm_runtime` appliqués; test d’isolation réussi. Le mot de passe local du
+  rôle restreint est défini hors dépôt; l’identifiant n8n
+  `Postgres CRM Runtime` est associé aux outils de l’agent.
+- Agent conversationnel CRM : première version MVP en lecture seule
+  versionnée dans
+  [`n8n-workflows/crm_agent_conversationnel_mvp.json`](./n8n-workflows/crm_agent_conversationnel_mvp.json),
+  avec un routeur d’intention à quatre sorties. Les clients récents, les
+  documents et les tâches passent par des appels PostgreSQL déterministes;
+  les autres questions utilisent Ollama `mistral-nemo` et les outils CRM. Le
+  workflow de chat de l’éditeur demeure non publié.
+- Webhook Web `CrmAgentWebhookV1` : publié temporairement le 2026-08-09 dans
+  l’environnement local isolé, sans JWT, après autorisation explicite pour la
+  validation du MVP. Les parcours documents, tâches, clients récents et dossier
+  client ont été vérifiés depuis l’interface React.
+- Identifiant métier client : la migration
+  [`database/008_code_client_metier.sql`](./database/008_code_client_metier.sql)
+  attribue à chaque fiche un code immuable tel que `CLI-2026-OB-000012`.
+  L’agent utilise ce code pour enchaîner ses outils sans recevoir les UUID
+  techniques.
+- Tests conversationnels : Documents et Tâches sont validés de bout en bout
+  avec résolution déterministe du message dans PostgreSQL. L’action rapide
+  « Clients récents » transmet désormais l’intention autorisée
+  `clients_recents`; l’API sélectionne le webhook n8n dédié
+  `crm/clients-recents`, qui appelle `crm.obtenir_derniers_clients()` et
+  retourne une réponse stable sans dépendre du choix d’outil de
+  `mistral-nemo`. Le webhook `crm/agent-chat` reste réservé aux questions
+  conversationnelles.
+- Tests n8n du 2026-08-09 : le routeur manuel a retourné les dix clients
+  récents, la tâche ouverte et les trois documents d’Olivier Bergeron; une
+  question libre a été traitée en français par Ollama.
+
+Le mot de passe local du rôle restreint peut être défini interactivement, sans
+l’ajouter à l’historique de commandes ni au dépôt, avec
+[`scripts/configurer_mot_de_passe_crm_runtime.ps1`](./scripts/configurer_mot_de_passe_crm_runtime.ps1).
+
+L’intégration Keycloak est maintenant versionnée, mais n’est pas encore activée
+dans l’environnement local. Elle utilise OpenID Connect, le flux Authorization
+Code avec PKCE et un jeton d’accès RS256. Le navigateur ne choisit jamais le
+`representant_id` : Keycloak le signe comme attribut, l’API le valide, puis le
+transmet à n8n.
+
+Pour créer le compte local du représentant sans versionner de secret :
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File ".\scripts\configurer_keycloak_mvp.ps1"
+```
+
+Le script démarre Keycloak, associe le représentant PostgreSQL `2026999999` au
+compte OIDC et demande interactivement son mot de passe. Après cette étape,
+reconstruire l’API avec `docker compose up -d --build transcription-api`.
+
+## Interface Web de l’agent
+
+Une première interface React responsive est versionnée dans [`web/`](./web/).
+Elle fournit :
+
+- un fil de conversation en français;
+- des raccourcis vers les clients récents, les documents et les tâches;
+- une recherche de dossier par nom ou `code_client`;
+- un panneau de dossier affichant profil, emploi, revenu, documents manquants,
+  tâches ouvertes et prochaine action, sans UUID;
+- des états de chargement et d’erreur accessibles;
+- un affichage adapté aux ordinateurs et aux appareils mobiles.
+
+Le navigateur appelle uniquement `GET /api/auth/config`,
+`POST /api/agent/messages` et `GET /api/clients/{reference}/dossier`. Les deux
+routes CRM exigent un jeton Keycloak. L’API valide les entrées et le jeton,
+établit elle-même le `representant_id`, puis relaie les appels à n8n; elle ne
+transmet ni accès PostgreSQL ni adresse Ollama au frontend.
+
+```powershell
+npm.cmd install --prefix web
+npm.cmd run web:build
+npm.cmd start
+```
+
+En développement avec rechargement automatique :
+
+```powershell
+npm.cmd run web:dev
+```
+
+Le workflow
+[`n8n-workflows/crm_agent_webhook_mvp.json`](./n8n-workflows/crm_agent_webhook_mvp.json)
+est publié temporairement dans l’environnement local pour les essais du MVP.
+Il ouvre temporairement trois webhooks persistants :
+`POST /webhook/crm/agent-chat` pour le dialogue libre et
+`POST /webhook/crm/clients-recents` pour l’action rapide déterministe, ainsi que
+`POST /webhook/crm/dossier-client` pour le contrat structuré du dossier. Cette
+exception locale ne remplace pas l’authentification cible : le workflow devra
+être désactivé après la démonstration ou protégé par JWT avant toute exposition
+hors du poste de développement.
+
+## Données de démonstration CRM
+
+Le jeu local fictif et réexécutable contient 12 clients, 3 interactions,
+4 documents et 3 tâches. Il ne supprime aucune donnée existante et utilise
+exclusivement des adresses `example.test` et des UUID réservés aux essais.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File ".\scripts\charger_donnees_demo.ps1"
+```
+
+Le script charge
+[`database/seeds/001_mvp_demo.sql`](./database/seeds/001_mvp_demo.sql), puis
+exécute automatiquement le contrôle
+[`tests/sql/mvp_demo_seed_test.sql`](./tests/sql/mvp_demo_seed_test.sql).
+La question `Affiche les 10 derniers clients` doit commencer par Olivier
+Bergeron et retourner exactement dix noms avec leur `code_client` dans ce jeu
+de démonstration.
 
 Le principe est volontairement simple:
 

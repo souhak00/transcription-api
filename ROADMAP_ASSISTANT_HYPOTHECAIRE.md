@@ -15,7 +15,12 @@ La solution dispose deja de:
 - synthese IA avec Ollama;
 - sauvegarde de la synthese IA dans Google Drive;
 - envoi Gmail;
-- debut d'extraction JSON client avec Ollama;
+- extraction JSON client avec Ollama, segmentation séquentielle et preuves
+  verbatim;
+- prévalidation déterministe des champs CRM, sans écriture automatique;
+- services métier PostgreSQL `crm.*` retournant du JSON;
+- workflow CRM de consultation du dossier Tremblay validé;
+- workflow d'analyse de transcription texte publié et testé sur cinq segments;
 - documentation et procedure de reprise.
 
 Workflow actuel:
@@ -235,20 +240,9 @@ Champs minimaux:
 | `statut_dossier` | Nouveau |
 | `date_appel` | 2026-06-05 |
 
-Technologies possibles:
-
-- Google Sheets pour POC;
-- Airtable;
-- NocoDB;
-- PostgreSQL;
-- Supabase.
-
-Recommandation:
-
-```text
-Google Sheets pour le POC.
-PostgreSQL ou Supabase pour la version durable.
-```
+La technologie retenue est PostgreSQL. Les fonctions du schéma `crm`
+constituent l'API interne JSON; n8n et Ollama ne lisent jamais directement les
+tables.
 
 ### 6. Deduplication des clients
 
@@ -477,19 +471,46 @@ Indicateurs:
 
 ## Prochaine etape concrete
 
-Puisque n8n, Ollama, Vosk, Gmail et Google Drive fonctionnent deja, la prochaine etape a plus forte valeur est:
+L'extraction JSON, les services PostgreSQL, le workflow CRM de consultation et
+l'isolation RLS sont maintenant validés. Les migrations 005 à 009 sont
+appliquées, `Postgres CRM Runtime` est associé aux cinq outils et chaque
+client possède un identifiant métier `CLI-AAAA-II-NNNNNN`. Les outils de
+l’agent utilisent désormais ce code au lieu de transmettre les UUID.
+Les tests conversationnels de lecture sont maintenant terminés. L’intégration
+Keycloak est versionnée : realm OIDC, client React avec PKCE, validation RS256
+dans l’API et propagation dynamique du `representant_id`. La prochaine étape
+est d’initialiser le compte local, puis de basculer le workflow publié :
 
 ```text
-Stabiliser le noeud Ollama - Extraction JSON client
--> Parser le JSON
--> Alimenter une base Google Sheets POC
+Tests de lecture terminés le 2026-08-09
+-> dix derniers clients retournés avec code_client et statut
+-> Olivier Bergeron : 3 documents, 2 manquants et 1 tâche ouverte
+-> aucun UUID ni code représentant affiché
+-> routeur n8n déterministe validé pour clients récents, documents et tâches
+-> affichage du dossier complet validé par nom ou code_client dans React
+-> commande « afficher le dossier CLI-… » routée sans dépendre du modèle
+-> chemin conversationnel libre validé avec Ollama mistral-nemo
+-> publication locale temporaire du webhook autorisée et validée le 2026-08-09
+-> désactiver ce webhook après la démonstration ou implanter le JWT avant toute
+   exposition hors du poste de développement
+-> Keycloak retenu comme gestionnaire d’identité local
+-> validation API : issuer, audience crm-api, signature RS256, rôle et attribut
+-> UUID fixe retiré du workflow n8n versionné
+-> initialiser le compte Keycloak avec scripts/configurer_keycloak_mvp.ps1
+-> publier ensuite la version n8n qui initialise app.role et app.representant_id
+   dans le même appel SQL
+-> confirmer que n8n appelle uniquement les fonctions crm.*
+-> ajouter une validation humaine explicite
+-> autoriser ensuite la création contrôlée d'interactions, documents et tâches
 ```
 
-Ensuite:
+Le script interactif versionné
+`scripts/configurer_mot_de_passe_crm_runtime.ps1` a servi à définir le mot de
+passe local sans le journaliser. Le workflow MVP versionné utilise Ollama
+`mistral-nemo` et cinq outils en lecture seule : rechercher un client,
+obtenir son dossier, ses documents, ses tâches et afficher les dix derniers
+clients.
 
-```text
-Ajouter representant_id
--> rechercher client existant
--> creer ou mettre a jour client
--> creer interaction
-```
+L'analyse de transcription reste une prévalidation : elle ne crée ni client ni
+interaction tant que l'identité du client, le représentant et les faits retenus
+n'ont pas été confirmés.
