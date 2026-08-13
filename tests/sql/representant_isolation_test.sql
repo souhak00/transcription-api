@@ -15,7 +15,8 @@ $preconditions$;
 CREATE TEMPORARY TABLE isolation_test_context (
     representant_principal_id uuid NOT NULL,
     representant_isole_id uuid NOT NULL,
-    client_isole_id uuid NOT NULL
+    client_isole_id uuid NOT NULL,
+    client_isole_code text NOT NULL
 ) ON COMMIT DROP;
 
 WITH principal AS (
@@ -31,7 +32,7 @@ representant_isole AS (
         courriel
     )
     VALUES (
-        '2026999998',
+        '2026999988',
         'Représentant Isolation',
         'isolation@example.test'
     )
@@ -50,17 +51,19 @@ client_isole AS (
         'client-isolation@example.test',
         'En analyse'
     FROM representant_isole
-    RETURNING client_id, representant_id
+    RETURNING client_id, representant_id, code_client
 )
 INSERT INTO isolation_test_context (
     representant_principal_id,
     representant_isole_id,
-    client_isole_id
+    client_isole_id,
+    client_isole_code
 )
 SELECT
     principal.representant_id,
     client_isole.representant_id,
-    client_isole.client_id
+    client_isole.client_id,
+    client_isole.code_client
 FROM principal
 CROSS JOIN client_isole;
 
@@ -92,6 +95,19 @@ BEGIN
         RAISE EXCEPTION 'La recherche révèle un client isolé: %', v_resultat;
     END IF;
 
+    -- Les vues Clients et Dossiers utilisent ce service. Une selection
+    -- explicite du code d'un autre representant doit rester vide.
+    v_resultat := crm.consulter_portefeuille(
+        '{}'::jsonb,
+        '[]'::jsonb,
+        100,
+        ARRAY[v_contexte.client_isole_code],
+        NULL
+    );
+    IF (v_resultat ->> 'nombre_clients')::integer IS DISTINCT FROM 0 THEN
+        RAISE EXCEPTION 'Le portefeuille revele un client isole: %', v_resultat;
+    END IF;
+
     BEGIN
         PERFORM client_id FROM public.clients LIMIT 1;
         RAISE EXCEPTION 'crm_runtime ne devrait jamais lire directement public.clients';
@@ -109,6 +125,17 @@ BEGIN
     v_resultat := crm.obtenir_client(v_contexte.client_isole_id);
     IF NOT COALESCE((v_resultat ->> 'trouve')::boolean, false) THEN
         RAISE EXCEPTION 'Le représentant propriétaire ne voit pas son client: %', v_resultat;
+    END IF;
+
+    v_resultat := crm.consulter_portefeuille(
+        '{}'::jsonb,
+        '[]'::jsonb,
+        100,
+        ARRAY[v_contexte.client_isole_code],
+        NULL
+    );
+    IF (v_resultat ->> 'nombre_clients')::integer IS DISTINCT FROM 1 THEN
+        RAISE EXCEPTION 'Le portefeuille du proprietaire ne contient pas son client: %', v_resultat;
     END IF;
 END
 $isolation$;

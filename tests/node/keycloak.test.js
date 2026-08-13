@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   AuthenticationError,
+  extractIdentity,
   extractRepresentative,
   loadKeycloakConfig,
   readBearerToken,
-  verifyAccessToken
+  verifyAccessToken,
+  verifyIdentityToken
 } from "../../src/keycloak.js";
 
 const representativeId = "ac7b7a4b-907e-4733-a0de-4e5ed40e6af0";
@@ -52,6 +54,49 @@ test("extractRepresentative exige le rôle et le representant_id signé", () => 
     () => extractRepresentative({ representant_id: representativeId, realm_access: { roles: [] } }),
     (error) => error instanceof AuthenticationError && error.statusCode === 403
   );
+});
+
+test("extractIdentity accepte un administrateur sans representant_id", () => {
+  assert.deepEqual(
+    extractIdentity({
+      sub: "admin-keycloak-id",
+      email: "admin@example.test",
+      name: "Administration CRM",
+      realm_access: { roles: ["admin"] }
+    }),
+    {
+      subject: "admin-keycloak-id",
+      email: "admin@example.test",
+      role: "admin",
+      representantId: null,
+      representantName: "Administration CRM"
+    }
+  );
+
+  assert.throws(
+    () => extractRepresentative({ realm_access: { roles: ["admin"] } }),
+    (error) => error instanceof AuthenticationError && error.statusCode === 403
+  );
+});
+
+test("verifyIdentityToken valide un jeton administrateur", async () => {
+  const user = await verifyIdentityToken("jeton-admin", {
+    configured: true,
+    issuer: "http://localhost:8080/realms/crm-local",
+    audience: "crm-api",
+    jwksUrl: "http://keycloak:8080/certs"
+  }, {
+    keySet: {},
+    jwtVerifyImplementation: async () => ({
+      payload: {
+        sub: "admin-keycloak-id",
+        realm_access: { roles: ["admin"] }
+      }
+    })
+  });
+
+  assert.equal(user.role, "admin");
+  assert.equal(user.representantId, null);
 });
 
 test("verifyAccessToken impose issuer, audience et RS256", async () => {

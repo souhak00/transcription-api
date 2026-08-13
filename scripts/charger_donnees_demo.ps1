@@ -47,4 +47,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host 'Donnees de demonstration chargees et validees.'
-Write-Host 'Clients : 12 | Interactions : 3 | Documents : 4 | Taches : 3'
+Write-Host 'Clients : 13 | Interactions : 4 | Documents : 7 | Taches : 4'

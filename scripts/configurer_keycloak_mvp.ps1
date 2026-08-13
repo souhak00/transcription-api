@@ -2,7 +2,8 @@
 param(
     [string]$RepresentantCode = "2026999999",
     [string]$Email = "representant-mvp@example.test",
-    [string]$DisplayName = "Représentant MVP"
+    [string]$DisplayName = "Représentant MVP",
+    [switch]$GenerateTemporaryPassword
 )
 
 $ErrorActionPreference = "Stop"
@@ -73,12 +74,18 @@ try {
         throw "Le représentant actif $RepresentantCode est introuvable dans PostgreSQL."
     }
 
-    $passwordSecure = Read-Host "Mot de passe du représentant Keycloak (12 caractères minimum)" -AsSecureString
-    $confirmationSecure = Read-Host "Confirmez le mot de passe" -AsSecureString
-    $password = Get-PlainText $passwordSecure
-    $confirmation = Get-PlainText $confirmationSecure
-    if ($password.Length -lt 12 -or $password -cne $confirmation) {
-        throw "Les mots de passe diffèrent ou contiennent moins de 12 caractères."
+    if ($GenerateTemporaryPassword) {
+        $password = New-UrlSafeSecret
+        $confirmation = $password
+    }
+    else {
+        $passwordSecure = Read-Host "Mot de passe du représentant Keycloak (12 caractères minimum)" -AsSecureString
+        $confirmationSecure = Read-Host "Confirmez le mot de passe" -AsSecureString
+        $password = Get-PlainText $passwordSecure
+        $confirmation = Get-PlainText $confirmationSecure
+        if ($password.Length -lt 12 -or $password -cne $confirmation) {
+            throw "Les mots de passe diffèrent ou contiennent moins de 12 caractères."
+        }
     }
 
     $adminUsername = Read-EnvValue "KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME"
@@ -191,7 +198,7 @@ try {
     $credentialPayload = @{
         type = "password"
         value = $password
-        temporary = $false
+        temporary = [bool]$GenerateTemporaryPassword
     } | ConvertTo-Json
     Invoke-RestMethod `
         -Uri "$adminBase/users/$userId/reset-password" `
@@ -211,6 +218,10 @@ try {
 
     Write-Host "Keycloak est configuré pour $Email."
     Write-Host "Le representant_id est associé au jeton sans être affiché dans l’interface."
+    if ($GenerateTemporaryPassword) {
+        Write-Host "Mot de passe temporaire (à transmettre de façon sécurisée) : $password"
+        Write-Host "Keycloak exigera son remplacement à la première connexion."
+    }
     Write-Host "Recréez ensuite l’API avec : docker compose up -d --build transcription-api"
 }
 finally {

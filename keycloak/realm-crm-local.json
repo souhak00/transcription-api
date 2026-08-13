@@ -12,6 +12,10 @@
       {
         "name": "representant",
         "description": "Accès en lecture au portefeuille CRM du représentant"
+      },
+      {
+        "name": "admin",
+        "description": "Administration des comptes et de la plateforme CRM"
       }
     ]
   },
@@ -28,11 +32,13 @@
       "serviceAccountsEnabled": false,
       "redirectUris": [
         "http://localhost:3000/*",
-        "http://localhost:3001/*"
+        "http://localhost:3001/*",
+        "https://crm-test.toniaconseil.us/*"
       ],
       "webOrigins": [
         "http://localhost:3000",
-        "http://localhost:3001"
+        "http://localhost:3001",
+        "https://crm-test.toniaconseil.us"
       ],
       "attributes": {
         "pkce.code.challenge.method": "S256"

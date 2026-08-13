@@ -3,17 +3,29 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   AgentRequestError,
+  extractClientCodes,
   extractUniqueClientCode,
   normalizeAgentRequest,
   normalizeClientReference,
   requestAgentReply,
-  requestClientDossier
+  requestClientDossier,
+  requestPortfolioData
 } from "./agent.js";
+import { buildAgentResponse } from "./contracts.js";
+import { normalizeDossierUpdate, requestDossierUpdate } from "./dossier-write.js";
 import {
   AuthenticationError,
+  authenticateIdentity,
   authenticateRequest,
   loadKeycloakConfig
 } from "./keycloak.js";
+import {
+  KeycloakAdminError,
+  listRepresentativeAccounts,
+  loadKeycloakAdminConfig,
+  resetRepresentativePassword,
+  setRepresentativeAccountEnabled
+} from "./keycloak-admin.js";
 import { loadEnvFile } from "./env.js";
 import { transcribeMedia } from "./transcribe.js";
 import { readRequestBuffer, saveBase64File, saveMultipartFile } from "./upload.js";
@@ -26,6 +38,7 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
 const WEB_DIST_DIR = path.resolve(process.env.WEB_DIST_DIR || "web/dist");
 const keycloakConfig = loadKeycloakConfig();
+const keycloakAdminConfig = loadKeycloakAdminConfig();
 const keycloakBrowserConfig = {
   url: String(process.env.KEYCLOAK_PUBLIC_URL ?? "http://localhost:8080").replace(/\/+$/, ""),
   realm: String(process.env.KEYCLOAK_REALM ?? "crm-local"),
@@ -82,6 +95,14 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload, null, 2));
 }
 
+async function requireAdministrator(request) {
+  const identity = await authenticateIdentity(request, keycloakConfig);
+  if (identity.role !== "admin") {
+    throw new AuthenticationError("Droits administrateur requis.", 403);
+  }
+  return identity;
+}
+
 /** Sert le build React et utilise index.html comme repli pour la navigation. */
 async function serveWebApp(url, response) {
   const requestedPath = decodeURIComponent(url.pathname);
@@ -129,7 +150,10 @@ const server = http.createServer(async (request, response) => {
         ok: true,
         keycloakConfigured: keycloakConfig.configured,
         agentConfigured: Boolean(process.env.N8N_AGENT_WEBHOOK_URL),
-        clientDossierConfigured: Boolean(process.env.N8N_CLIENT_DOSSIER_WEBHOOK_URL)
+        missingDocumentsConfigured: Boolean(process.env.N8N_MISSING_DOCUMENTS_WEBHOOK_URL),
+        portfolioConfigured: Boolean(process.env.N8N_PORTFOLIO_WEBHOOK_URL),
+        clientDossierConfigured: Boolean(process.env.N8N_CLIENT_DOSSIER_WEBHOOK_URL),
+        dossierWriteConfigured: Boolean(process.env.N8N_DOSSIER_WRITE_WEBHOOK_URL)
       });
       return;
     }
@@ -141,12 +165,64 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/me") {
-      const user = await authenticateRequest(request, keycloakConfig);
+      const user = await authenticateIdentity(request, keycloakConfig);
       sendJson(response, 200, {
         email: user.email,
         name: user.representantName,
         role: user.role
       });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/portfolio") {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const portfolio = await requestPortfolioData({
+        status: url.searchParams.get("status") ?? "",
+        followUp: url.searchParams.get("followUp") === "true",
+        limit: url.searchParams.get("limit") ?? 100,
+        sort: [{ field: url.searchParams.get("sort") ?? "updated_at", direction: "desc" }]
+      }, { representativeId: user.representantId });
+      sendJson(response, 200, portfolio);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/representatives") {
+      await requireAdministrator(request);
+      const accounts = await listRepresentativeAccounts(keycloakAdminConfig);
+      sendJson(response, 200, { accounts });
+      return;
+    }
+
+    const adminPasswordMatch = url.pathname.match(
+      /^\/api\/admin\/representatives\/([0-9a-f-]+)\/password$/i
+    );
+    if (request.method === "PUT" && adminPasswordMatch) {
+      await requireAdministrator(request);
+      const input = await readJson(request);
+      await resetRepresentativePassword(
+        keycloakAdminConfig,
+        adminPasswordMatch[1],
+        input.password
+      );
+      sendJson(response, 200, { status: "password_reset_required" });
+      return;
+    }
+
+    const adminAccountMatch = url.pathname.match(
+      /^\/api\/admin\/representatives\/([0-9a-f-]+)$/i
+    );
+    if (request.method === "PATCH" && adminAccountMatch) {
+      await requireAdministrator(request);
+      const input = await readJson(request);
+      if (typeof input.enabled !== "boolean") {
+        throw new KeycloakAdminError("Le statut du compte est invalide.", 400);
+      }
+      await setRepresentativeAccountEnabled(
+        keycloakAdminConfig,
+        adminAccountMatch[1],
+        input.enabled
+      );
+      sendJson(response, 200, { status: input.enabled ? "enabled" : "disabled" });
       return;
     }
 
@@ -158,15 +234,36 @@ const server = http.createServer(async (request, response) => {
         ...input,
         representativeId: user.representantId
       });
-      sendJson(response, 200, {
-        reply,
-        sessionId: input.sessionId,
-        clientReference: extractUniqueClientCode(input.message, reply)
-      });
+      const clientReference = input.clientReference
+        ?? extractUniqueClientCode(input.message, reply);
+      const resultCodes = extractClientCodes(reply);
+      sendJson(response, 200, buildAgentResponse(input, reply, {
+        clientReference,
+        data: {
+          requested_fields: input.requestedFields,
+          scope: input.scope,
+          result_codes: resultCodes
+        }
+      }));
       return;
     }
 
     // Vue structurée d’un dossier: le navigateur fournit un code métier ou un nom.
+    if (request.method === "PUT" && url.pathname.startsWith("/api/clients/")
+        && url.pathname.endsWith("/dossier")) {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const encodedReference = url.pathname
+        .slice("/api/clients/".length, -"/dossier".length)
+        .replace(/^\/+|\/+$/g, "");
+      const clientReference = normalizeClientReference(decodeURIComponent(encodedReference));
+      const input = normalizeDossierUpdate(await readJson(request));
+      const dossier = await requestDossierUpdate(clientReference, input, {
+        representativeId: user.representantId
+      });
+      sendJson(response, 200, dossier);
+      return;
+    }
+
     if (request.method === "GET" && url.pathname.startsWith("/api/clients/")
         && url.pathname.endsWith("/dossier")) {
       const user = await authenticateRequest(request, keycloakConfig);
@@ -248,11 +345,21 @@ const server = http.createServer(async (request, response) => {
     // Toute route non declaree recoit une reponse HTTP 404.
     sendJson(response, 404, { error: "Route introuvable." });
   } catch (error) {
-    const status = error instanceof AgentRequestError || error instanceof AuthenticationError
+    const status = error instanceof AgentRequestError
+      || error instanceof AuthenticationError
+      || error instanceof KeycloakAdminError
       ? error.statusCode
       : 500;
     // Les erreurs de l'orchestrateur sont volontairement nettoyees avant retour.
-    sendJson(response, status, { error: error.message });
+    sendJson(response, status, {
+      schema_version: "1.0",
+      request_id: request.headers["x-correlation-id"] ?? null,
+      status: "error",
+      data: null,
+      reply: null,
+      clarification: null,
+      error: error.message
+    });
   }
 });
 

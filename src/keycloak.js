@@ -40,13 +40,31 @@ function getRemoteKeySet(jwksUrl) {
 }
 
 export function extractRepresentative(payload = {}) {
+  const identity = extractIdentity(payload);
+  if (identity.role !== "representant") {
+    throw new AuthenticationError("Ce compte n’est pas associé à un représentant CRM.", 403);
+  }
+  return identity;
+}
+
+export function extractIdentity(payload = {}) {
   const realmRoles = Array.isArray(payload.realm_access?.roles)
     ? payload.realm_access.roles
     : [];
   const representantId = String(payload.representant_id ?? "");
 
+  if (realmRoles.includes("admin")) {
+    return {
+      subject: String(payload.sub ?? ""),
+      email: String(payload.email ?? ""),
+      role: "admin",
+      representantId: null,
+      representantName: String(payload.name ?? payload.preferred_username ?? "Administrateur")
+    };
+  }
+
   if (!realmRoles.includes("representant") || !UUID_PATTERN.test(representantId)) {
-    throw new AuthenticationError("Ce compte n’est pas associé à un représentant CRM.", 403);
+    throw new AuthenticationError("Ce compte n’est pas autorisé à utiliser le CRM.", 403);
   }
 
   return {
@@ -56,6 +74,26 @@ export function extractRepresentative(payload = {}) {
     representantId,
     representantName: String(payload.name ?? payload.preferred_username ?? "Représentant")
   };
+}
+
+export async function verifyIdentityToken(token, config, options = {}) {
+  if (!config?.configured) {
+    throw new AuthenticationError("Keycloak n’est pas configuré dans l’API.", 503);
+  }
+
+  try {
+    const verifier = options.jwtVerifyImplementation ?? jwtVerify;
+    const keySet = options.keySet ?? getRemoteKeySet(config.jwksUrl);
+    const { payload } = await verifier(token, keySet, {
+      issuer: config.issuer,
+      audience: config.audience,
+      algorithms: ["RS256"]
+    });
+    return extractIdentity(payload);
+  } catch (error) {
+    if (error instanceof AuthenticationError) throw error;
+    throw new AuthenticationError("La session Keycloak est invalide ou expirée.");
+  }
 }
 
 export async function verifyAccessToken(token, config, options = {}) {
@@ -81,4 +119,9 @@ export async function verifyAccessToken(token, config, options = {}) {
 export async function authenticateRequest(request, config, options = {}) {
   const token = readBearerToken(request.headers.authorization);
   return verifyAccessToken(token, config, options);
+}
+
+export async function authenticateIdentity(request, config, options = {}) {
+  const token = readBearerToken(request.headers.authorization);
+  return verifyIdentityToken(token, config, options);
 }

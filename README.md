@@ -10,6 +10,8 @@ connus sont documentés dans [ARCHITECTURE.md](./ARCHITECTURE.md). Le contexte
 permanent du projet se trouve dans
 [CONTEXTE_PROJET.md](./CONTEXTE_PROJET.md).
 Le processus GitHub, les environnements, les releases, les rollbacks et les sauvegardes sont decrits dans [GITHUB_PROCESS.md](./GITHUB_PROCESS.md).
+Le contrat JSON versionné entre l’API et l’orchestrateur est décrit dans
+[docs/CONTRAT_AGENT_V1.md](./docs/CONTRAT_AGENT_V1.md).
 Le workflow n8n qui combine transcription et synthese Ollama est decrit dans [N8N_OLLAMA_WORKFLOW.md](./N8N_OLLAMA_WORKFLOW.md).
 La procedure complete de reprise, avec resultats attendus et tests de validation, est disponible dans [PROCEDURE_REPRISE_COMPLETE.md](./PROCEDURE_REPRISE_COMPLETE.md).
 Les actions pour ameliorer la qualite de transcription sont decrites dans [AMELIORER_TRANSCRIPTION.md](./AMELIORER_TRANSCRIPTION.md).
@@ -36,10 +38,12 @@ Le script PostgreSQL de depart pour la Phase 2 est disponible dans [database/001
   documents et les tâches passent par des appels PostgreSQL déterministes;
   les autres questions utilisent Ollama `mistral-nemo` et les outils CRM. Le
   workflow de chat de l’éditeur demeure non publié.
-- Webhook Web `CrmAgentWebhookV1` : publié temporairement le 2026-08-09 dans
-  l’environnement local isolé, sans JWT, après autorisation explicite pour la
-  validation du MVP. Les parcours documents, tâches, clients récents et dossier
-  client ont été vérifiés depuis l’interface React.
+- Webhook Web `CrmAgentWebhookV1` : version sécurisée publiée localement le
+  2026-08-10. L’API valide le JWT Keycloak et transmet l’identité signée dans
+  un contexte séparé; les sept accès PostgreSQL initialisent dynamiquement la
+  RLS. Les parcours documents, tâches, clients récents et dossier client ont
+  été vérifiés depuis l’interface React ou par consultation locale en lecture
+  seule.
 - Identifiant métier client : la migration
   [`database/008_code_client_metier.sql`](./database/008_code_client_metier.sql)
   attribue à chaque fiche un code immuable tel que `CLI-2026-OB-000012`.
@@ -56,6 +60,50 @@ Le script PostgreSQL de depart pour la Phase 2 est disponible dans [database/001
 - Tests n8n du 2026-08-09 : le routeur manuel a retourné les dix clients
   récents, la tâche ouverte et les trois documents d’Olivier Bergeron; une
   question libre a été traitée en français par Ollama.
+- Test Web authentifié du 2026-08-10 : connexion Keycloak, dix clients récents,
+  dossier d’Olivier Bergeron, références « ses documents » et « ses tâches »,
+  clarification sans client et question libre Ollama validés de bout en bout.
+  Le test a aussi permis de corriger le faux positif entre « suivi
+  hypothécaire » et une demande de tâches.
+- Consultation globale des documents manquants : la migration
+  [`database/010_clients_documents_manquants.sql`](./database/010_clients_documents_manquants.sql)
+  expose `crm.obtenir_clients_documents_manquants(integer)`. L’intention
+  `clients_documents_manquants`, son webhook n8n déterministe et le raccourci
+  React « Documents manquants » ont été validés le 2026-08-10.
+- Consultation structurée des champs du dossier : l’intention
+  `consultation_client` résout d’abord le code ou le nom explicite, puis lit le
+  dossier JSON existant. Le statut, les coordonnées, le revenu, la mise de
+  fonds et le montant du financement sont formatés sans réponse libre du LLM.
+- Détails hypothécaires spécialisés : la migration
+  [`database/011_details_hypothecaires.sql`](./database/011_details_hypothecaires.sql)
+  ajoute un agrégat 1:1 protégé par RLS. Le service
+  `crm.obtenir_dossier_hypothecaire(text)` enrichit le dossier JSON avec le
+  prêteur, l’approbation, le taux, le terme, la fermeture, le notaire,
+  l’évaluation et l’assurance prêt.
+- Consultation du portefeuille : la migration
+  [`database/012_consultation_portefeuille.sql`](./database/012_consultation_portefeuille.sql)
+  ajoute le filtrage par statut, les relances, le classement explicable par
+  priorité et l’agrégation du revenu. Le contexte conserve uniquement les codes
+  du dernier résultat afin de comprendre « classe-les » ou « mets le tout en
+  tableau ». Le webhook déterministe est `crm/portefeuille`.
+- Profil complet de la demande : la migration
+  [`database/013_profil_demande_hypothecaire.sql`](./database/013_profil_demande_hypothecaire.sql)
+  ajoute la date de naissance, l’adresse structurée, les préférences de contact,
+  le projet immobilier, les participants et les consentements versionnés. Ces
+  données sont incluses dans `crm.obtenir_dossier_hypothecaire(text)` et dans la
+  fiche Web, toujours sans exposer les identifiants techniques.
+- Enregistrement contrôlé du dossier : la migration
+  [`database/014_enregistrement_dossier.sql`](./database/014_enregistrement_dossier.sql)
+  ajoute une fonction transactionnelle idempotente et un journal de modifications
+  limité aux noms de champs. L’interface exige une confirmation explicite, l’API
+  filtre les champs autorisés et l’identité du représentant provient uniquement du
+  jeton Keycloak. Les consentements demeurent en lecture seule.
+- Relations représentant, dossier et clients : la migration
+  [`database/015_relations_dossiers_clients.sql`](./database/015_relations_dossiers_clients.sql)
+  crée un dossier hypothécaire explicite appartenant à un représentant et une
+  table de liaison permettant un demandeur principal et plusieurs clients
+  associés. Des clés étrangères composées interdisent de relier au dossier un
+  client d'un autre représentant; les deux tables sont protégées par RLS.
 
 Le mot de passe local du rôle restreint peut être défini interactivement, sans
 l’ajouter à l’historique de commandes ni au dépôt, avec
@@ -88,12 +136,15 @@ Elle fournit :
 - une recherche de dossier par nom ou `code_client`;
 - un panneau de dossier affichant profil, emploi, revenu, documents manquants,
   tâches ouvertes et prochaine action, sans UUID;
+- un formulaire de modification du profil, de l’adresse, du projet et des
+  participants, avec validation et confirmation avant sauvegarde;
 - des états de chargement et d’erreur accessibles;
 - un affichage adapté aux ordinateurs et aux appareils mobiles.
 
 Le navigateur appelle uniquement `GET /api/auth/config`,
-`POST /api/agent/messages` et `GET /api/clients/{reference}/dossier`. Les deux
-routes CRM exigent un jeton Keycloak. L’API valide les entrées et le jeton,
+`POST /api/agent/messages`, `GET /api/clients/{reference}/dossier` et
+`PUT /api/clients/{reference}/dossier`. Les routes CRM exigent un jeton
+Keycloak. L’API valide les entrées et le jeton,
 établit elle-même le `representant_id`, puis relaie les appels à n8n; elle ne
 transmet ni accès PostgreSQL ni adresse Ollama au frontend.
 
@@ -115,7 +166,8 @@ est publié temporairement dans l’environnement local pour les essais du MVP.
 Il ouvre temporairement trois webhooks persistants :
 `POST /webhook/crm/agent-chat` pour le dialogue libre et
 `POST /webhook/crm/clients-recents` pour l’action rapide déterministe, ainsi que
-`POST /webhook/crm/dossier-client` pour le contrat structuré du dossier. Cette
+`POST /webhook/crm/dossier-client` pour le contrat structuré du dossier et
+`POST /webhook/crm/enregistrer-dossier` pour son enregistrement idempotent. Cette
 exception locale ne remplace pas l’authentification cible : le workflow devra
 être désactivé après la démonstration ou protégé par JWT avant toute exposition
 hors du poste de développement.

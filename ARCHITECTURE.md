@@ -445,25 +445,30 @@ Cas obligatoires :
    appels PostgreSQL utilisent l’identifiant restreint
    `Postgres CRM Runtime`.
 3. L’interface React et la route `POST /api/agent/messages` sont implantées.
-   Le workflow Webhook n8n a été publié temporairement le 2026-08-09 dans
-   l’environnement local isolé, sans JWT, après autorisation explicite pour
-   tester le MVP. Cette publication doit être retirée après la démonstration
-   ou remplacée par l’authentification cible.
+   Le contrat conversationnel `1.0` sépare la commande, le contexte minimal et
+   l’identité de sécurité; les champs historiques restent temporairement
+   transmis pour permettre une transition contrôlée.
 4. L’intégration Keycloak, la validation API et la propagation dynamique du
-   `representant_id` sont versionnées, mais le realm et le compte local doivent
-   encore être initialisés avant leur activation. Le workflow publié utilise
-   donc toujours l’ancienne version tant que cette bascule n’est pas validée.
-5. Les trois variantes Tremblay doivent être dédoublonnées ou gérées par
+   `representant_id` sont actives localement depuis le 2026-08-10. Le workflow
+   publié correspond à la version sécurisée du dépôt et ses huit accès
+   PostgreSQL initialisent `app.role` et `app.representant_id` dans la même
+   requête que le service `crm.*`.
+5. Les consultations de portefeuille utilisent des intentions et services
+   dédiés. `clients_documents_manquants` appelle de façon déterministe
+   `crm.obtenir_clients_documents_manquants(integer)`; le client actif est
+   ignoré pour cette question globale.
+6. Les trois variantes Tremblay doivent être dédoublonnées ou gérées par
    clarification.
-6. Le prompt génère du texte naturel; l’enveloppe JSON conversationnelle stable
-   reste à implanter.
-7. Le workflow de transcription historique contient encore de la logique SQL
+7. L’enveloppe JSON conversationnelle `1.0` est implantée, mais les alias de
+   champs historiques restent transmis temporairement pendant la transition.
+8. Le workflow de transcription historique contient encore de la logique SQL
    directe à migrer vers les services PostgreSQL.
-8. Les chemins structurés Clients récents, Documents et Tâches appellent
+9. Les chemins structurés Clients récents, Documents, Documents manquants et
+   Tâches appellent
    désormais leurs services PostgreSQL de façon déterministe. Les questions
    libres utilisent encore l’agent Ollama; leurs temps de réponse dépendent du
    modèle et de la machine locale.
-9. Dans l’éditeur n8n, le déclencheur de discussion de test peut être brièvement
+10. Dans l’éditeur n8n, le déclencheur de discussion de test peut être brièvement
    désenregistré entre deux sessions. Il faut attendre l’état d’écoute avant
    d’envoyer le premier message; ce comportement ne concerne pas les webhooks
    publiés.
@@ -487,6 +492,7 @@ flowchart LR
     API -->|"question libre"| ChatWebhook
     API -->|"clients_recents"| RecentWebhook
     API -->|"dossier_client"| DossierWebhook
+    API -->|"consultation_client + requested_fields"| DossierWebhook
     ChatWebhook --> Agent
     RecentWebhook --> Recent
     DossierWebhook --> Dossier
@@ -505,8 +511,10 @@ flowchart LR
 La route serveur limite chaque message à 1 000 caractères, applique un délai
 d’attente et masque les erreurs internes. La route dossier accepte un nom ou un
 `code_client` et ne retourne aucun UUID. Les commandes « afficher le dossier »
-sont routées de façon déterministe afin de ne pas dépendre du choix d’outil par
-le modèle. Le build React est produit dans `web/dist` puis servi par la même API,
+sont routées de façon déterministe. Les consultations de statut, coordonnées,
+revenu, mise de fonds et financement utilisent la même route avec une liste de
+champs autorisés; elles ne dépendent donc pas du choix d’outil par le modèle. Le
+build React est produit dans `web/dist` puis servi par la même API,
 ce qui évite CORS et empêche le navigateur de connaître l’adresse n8n.
 
 Le workflow `CRM - Agent Web - MVP` est versionné dans
@@ -601,11 +609,13 @@ Connexion du représentant
 | Sujet | Source |
 | --- | --- |
 | Modèle relationnel | `database/001_crm_postgresql.sql` |
+| Relations dossier-clients | `database/015_relations_dossiers_clients.sql` |
 | RLS actuelle | `database/002_access_control.sql` |
 | Services CRM | `database/004_crm_services.sql` |
 | Rôle d’exécution préparé | `database/005_crm_runtime_security.sql` |
 | Test Tremblay | `tests/sql/tremblay_acceptance_test.sql` |
 | Test d’isolation | `tests/sql/representant_isolation_test.sql` |
+| Test dossier multi-clients | `tests/sql/relations_dossiers_clients_test.sql` |
 | Workflow CRM validé | `n8n-workflows/crm_etat_dossier_valide.json` |
 | Prompt CRM | `prompts/crm_resume_etat_dossier.md` |
 | Contexte permanent | `CONTEXTE_PROJET.md` |

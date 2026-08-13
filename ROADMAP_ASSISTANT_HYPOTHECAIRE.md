@@ -496,10 +496,15 @@ Tests de lecture terminés le 2026-08-09
 -> Keycloak retenu comme gestionnaire d’identité local
 -> validation API : issuer, audience crm-api, signature RS256, rôle et attribut
 -> UUID fixe retiré du workflow n8n versionné
--> initialiser le compte Keycloak avec scripts/configurer_keycloak_mvp.ps1
--> publier ensuite la version n8n qui initialise app.role et app.representant_id
-   dans le même appel SQL
--> confirmer que n8n appelle uniquement les fonctions crm.*
+-> compte Keycloak local initialisé et rôle représentant vérifié le 2026-08-10
+-> version n8n sécurisée publiée le 2026-08-10 avec app.role et
+   app.representant_id initialisés dans le même appel SQL
+-> sept accès PostgreSQL vérifiés : uniquement des fonctions crm.*
+-> contrat conversationnel JSON 1.0, routage hybride et contexte minimal actifs
+-> parcours React + Keycloak + API + n8n + PostgreSQL validé de bout en bout le
+   2026-08-10, incluant clarification et question libre Ollama
+-> consultation globale des clients avec documents manquants implantée et
+   validée le 2026-08-10 dans PostgreSQL, n8n, l’API et React
 -> ajouter une validation humaine explicite
 -> autoriser ensuite la création contrôlée d'interactions, documents et tâches
 ```

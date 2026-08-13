@@ -1,7 +1,7 @@
 {
-  "id": "CrmAgentWebhookV1",
+  "id": "D57yw2A5taOEmqSE",
   "name": "CRM - Agent Web - MVP",
-  "active": false,
+  "active": true,
   "nodes": [
     {
       "parameters": {
@@ -21,7 +21,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const request = $input.first().json;\nconst body = request.body ?? request;\nconst message = typeof body.message === 'string' ? body.message.trim() : '';\nconst intent = typeof body.intent === 'string' && body.intent.trim()\n  ? body.intent.trim()\n  : 'conversation';\nconst representativeId = typeof body.representant_id === 'string'\n  ? body.representant_id.trim()\n  : '';\n\nif (!message) {\n  throw new Error('Le champ message est requis.');\n}\n\nif (message.length > 1000) {\n  throw new Error('Le message dépasse la limite de 1000 caractères.');\n}\n\nif (!['conversation', 'clients_recents'].includes(intent)) {\n  throw new Error('L’intention demandée n’est pas autorisée.');\n}\n\nif (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(representativeId)) {\n  throw new Error('Le contexte représentant est invalide.');\n}\n\nreturn [{\n  json: {\n    chatInput: message,\n    intent,\n    representativeId,\n    sessionId: typeof body.session_id === 'string'\n      ? body.session_id.slice(0, 100)\n      : null\n  }\n}];"
+        "jsCode": "const request = $input.first().json;\nconst body = request.body ?? request;\nconst command = body.command ?? body;\nconst security = command.security_context ?? body.security_context ?? {};\nconst message = typeof command.message === 'string' ? command.message.trim() : '';\nconst intent = typeof command.intent === 'string' && command.intent.trim()\n  ? command.intent.trim()\n  : 'conversation';\nconst representativeId = typeof security.representant_id === 'string'\n  ? security.representant_id.trim()\n  : (typeof body.representant_id === 'string' ? body.representant_id.trim() : '');\nconst requestId = typeof command.request_id === 'string' ? command.request_id : null;\n\nif (command.schema_version && command.schema_version !== '1.0') {\n  throw new Error('La version du contrat agent n’est pas prise en charge.');\n}\n\nif (!message) {\n  throw new Error('Le champ message est requis.');\n}\n\nif (message.length > 1000) {\n  throw new Error('Le message dépasse la limite de 1000 caractères.');\n}\n\nif (!['conversation', 'clients_recents'].includes(intent)) {\n  throw new Error('L’intention demandée n’est pas autorisée.');\n}\n\nif (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(representativeId)) {\n  throw new Error('Le contexte représentant est invalide.');\n}\n\nreturn [{\n  json: {\n    chatInput: message,\n    intent,\n    representativeId,\n    requestId,\n    sessionId: typeof command.session_id === 'string'\n      ? command.session_id.slice(0, 100)\n      : null\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -52,7 +52,7 @@
         "operation": "executeQuery",
         "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', $1::uuid::text, true)\n)\nSELECT crm.obtenir_derniers_clients() AS resultat\nFROM contexte;",
         "options": {
-          "queryReplacement": "={{ [$json.body.representant_id] }}"
+          "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id] }}"
         }
       },
       "type": "n8n-nodes-base.postgres",
@@ -203,7 +203,7 @@
         "descriptionType": "manual",
         "toolDescription": "Outil obligatoire pour afficher, consulter ou résumer le dossier complet d’un client. Le message utilisateur complet est transmis à PostgreSQL, qui résout le code_client ou le nom et retourne un JSON sans UUID.",
         "operation": "executeQuery",
-        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', $2::uuid::text, true)\n)\nSELECT crm.obtenir_dossier_client($1::text) AS resultat\nFROM contexte;",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', $2::uuid::text, true)\n)\nSELECT crm.obtenir_dossier_hypothecaire($1::text) AS resultat\nFROM contexte;",
         "options": {
           "queryReplacement": "={{ [$('Préparer requête').item.json.chatInput, $('Préparer requête').item.json.representativeId] }}"
         }
@@ -223,7 +223,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { reponse: $json.output, session_id: $('Préparer requête').item.json.sessionId } }}",
+        "responseBody": "={{ { schema_version: '1.0', request_id: $('Préparer requête').item.json.requestId, status: 'success', reply: $json.output, session_id: $('Préparer requête').item.json.sessionId } }}",
         "options": {}
       },
       "type": "n8n-nodes-base.respondToWebhook",
@@ -275,7 +275,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', $2::uuid::text, true)\n)\nSELECT crm.obtenir_dossier_client($1::text) AS resultat\nFROM contexte;",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', $2::uuid::text, true)\n)\nSELECT crm.obtenir_dossier_hypothecaire($1::text) AS resultat\nFROM contexte;",
         "options": {
           "queryReplacement": "={{ [$json.clientReference, $json.representativeId] }}"
         }
@@ -303,6 +303,149 @@
       "position": [1160, -500],
       "id": "64d29f18-cfda-4ca0-bb43-4d4f3f568218",
       "name": "Répondre dossier client"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/documents-manquants",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [440, -760],
+      "id": "c3480e70-8b0c-4ed5-a154-b56447650916",
+      "name": "Webhook - Documents manquants",
+      "webhookId": "2396bfcc-b13a-4dda-b2a1-f3b65fa53d07",
+      "notesInFlow": true,
+      "notes": "Entrée déterministe pour les clients du portefeuille ayant des documents manquants."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', $1::uuid::text, true)\n)\nSELECT crm.obtenir_clients_documents_manquants(20) AS resultat\nFROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [680, -760],
+      "id": "cb847dfa-d5d1-4349-8973-c3d023632352",
+      "name": "CRM - Clients avec documents manquants",
+      "credentials": {
+        "postgres": {
+          "id": "wCLuOE3i6RejO6bL",
+          "name": "Postgres CRM Runtime"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.resultat;\nconst resultat = typeof raw === 'string' ? JSON.parse(raw) : raw;\nconst clients = Array.isArray(resultat?.clients) ? resultat.clients : [];\n\nconst lignes = clients.map((client, index) => {\n  const documents = Array.isArray(client.documents_manquants)\n    ? client.documents_manquants.map((document) => `   • ${document.document}`).join('\\n')\n    : '';\n  const titre = `${index + 1}. ${client.nom_client} — ${client.code_client} — ${client.nombre_documents_manquants} document(s) manquant(s)`;\n  return documents ? `${titre}\\n${documents}` : titre;\n});\n\nreturn [{\n  json: {\n    output: clients.length\n      ? `${clients.length} client(s) ont des documents manquants :\\n\\n${lignes.join('\\n\\n')}`\n      : 'Aucun client n’a de document manquant.',\n    requestId: $('Webhook - Documents manquants').item.json.body?.request_id ?? null,\n    sessionId: $('Webhook - Documents manquants').item.json.body?.session_id ?? null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, -760],
+      "id": "43675186-729f-45c7-8f7a-278eaad4eac0",
+      "name": "Formater documents manquants",
+      "notesInFlow": true,
+      "notes": "Produit une réponse stable sans demander au modèle de comparer les dossiers."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { schema_version: '1.0', request_id: $json.requestId, status: 'success', reply: $json.output, session_id: $json.sessionId } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1160, -760],
+      "id": "85250669-c01d-48a7-9093-03806cc4d2fb",
+      "name": "Répondre documents manquants"
+    },
+    {
+      "parameters": { "httpMethod": "POST", "path": "crm/portefeuille", "responseMode": "responseNode", "options": {} },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [440, -1020],
+      "id": "441d14d6-5c1b-4b30-8f58-b6ef13644370",
+      "name": "Webhook - Portefeuille",
+      "webhookId": "f1513230-ad8e-446e-969c-e7aa3c5c1aa5"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT set_config('app.role', 'representant', true), set_config('app.representant_id', $1::uuid::text, true)\n)\nSELECT crm.consulter_portefeuille($2::jsonb, $3::jsonb, $4::integer, ARRAY(SELECT jsonb_array_elements_text($5::jsonb)), NULLIF($6, 'null')::jsonb) AS resultat FROM contexte;",
+        "options": { "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id, JSON.stringify($json.body.command?.parameters?.filters ?? {}), JSON.stringify($json.body.command?.parameters?.sort ?? []), $json.body.command?.parameters?.limit ?? 20, JSON.stringify($json.body.command?.conversation_context?.last_result_codes ?? []), JSON.stringify($json.body.command?.parameters?.aggregate ?? null)] }}" }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [680, -1020],
+      "id": "60a0c13e-ea7e-44b3-b7ce-816579c90702",
+      "name": "CRM - Consulter portefeuille",
+      "credentials": { "postgres": { "id": "wCLuOE3i6RejO6bL", "name": "Postgres CRM Runtime" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.resultat;\nconst resultat = typeof raw === 'string' ? JSON.parse(raw) : raw;\nconst rows = Array.isArray(resultat?.rows) ? resultat.rows : [];\nconst request = $('Webhook - Portefeuille').item.json.body ?? {};\nconst format = request.command?.parameters?.format ?? 'text';\nconst aggregate = request.command?.parameters?.aggregate ?? null;\nconst money = (value) => value == null ? 'Non renseigné' : new Intl.NumberFormat('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }).format(Number(value));\nlet output;\nif (!rows.length) output = 'Aucun dossier client ne correspond à ces critères.';\nelse if (aggregate?.operation === 'max' && aggregate?.field === 'revenu_annuel') { const row = rows[0]; output = `Le revenu annuel le plus élevé est celui de ${row.nom_client} — ${row.code_client} : ${money(row.revenu_annuel)}.`; }\nelse if (format === 'table') { const header = '| Client | Code client | Statut | Priorité |\\n|---|---|---|---:|'; const lines = rows.map((row) => `| ${row.nom_client} | ${row.code_client} | ${row.statut_dossier} | ${row.priority_score} |`); output = `${header}\\n${lines.join('\\n')}`; }\nelse { const lines = rows.map((row, index) => { const reasons = Array.isArray(row.priority_reasons) && row.priority_reasons.length ? ` — ${row.priority_reasons.join(', ')}` : ''; return `${index + 1}. ${row.nom_client} — ${row.code_client} — ${row.statut_dossier} — priorité ${row.priority_score}${reasons}`; }); output = `${rows.length} dossier(s) trouvé(s) :\\n\\n${lines.join('\\n')}`; }\nreturn [{ json: { output, resultat, requestId: request.request_id ?? null, sessionId: request.session_id ?? null } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [920, -1020],
+      "id": "cbb3ae04-abfc-441d-aa74-558b8e20b392",
+      "name": "Formater portefeuille"
+    },
+    {
+      "parameters": { "respondWith": "json", "responseBody": "={{ { schema_version: '1.0', request_id: $json.requestId, status: 'success', reply: $json.output, data: $json.resultat, session_id: $json.sessionId } }}", "options": {} },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1160, -1020],
+      "id": "f9fbbdec-1164-44c7-9b01-b048700c8390",
+      "name": "Répondre portefeuille"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/enregistrer-dossier",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [440, -1280],
+      "id": "55843a31-a2de-4be3-afd9-4ba3a5429d14",
+      "name": "Webhook - Enregistrer dossier",
+      "webhookId": "db7e7f70-9890-46e3-92c4-f270419e747a"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT set_config('app.role', 'representant', true), set_config('app.representant_id', $1::uuid::text, true)\n)\nSELECT crm.enregistrer_dossier_hypothecaire($2::text, $3::jsonb, $4::uuid) AS resultat FROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id, $json.body.client_reference, JSON.stringify($json.body.payload ?? {}), $json.body.request_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [720, -1280],
+      "id": "c46e4b3c-56ec-462e-b23c-413d8ea18503",
+      "name": "CRM - Enregistrer dossier",
+      "credentials": {
+        "postgres": { "id": "wCLuOE3i6RejO6bL", "name": "Postgres CRM Runtime" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { dossier: $json.resultat } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [1000, -1280],
+      "id": "e23869c8-e787-47cd-ad34-7e56046f4029",
+      "name": "Répondre enregistrement dossier"
     }
   ],
   "connections": {
@@ -329,6 +472,30 @@
     },
     "CRM - Obtenir dossier client": {
       "main": [[{"node": "Répondre dossier client", "type": "main", "index": 0}]]
+    },
+    "Webhook - Documents manquants": {
+      "main": [[{"node": "CRM - Clients avec documents manquants", "type": "main", "index": 0}]]
+    },
+    "CRM - Clients avec documents manquants": {
+      "main": [[{"node": "Formater documents manquants", "type": "main", "index": 0}]]
+    },
+    "Formater documents manquants": {
+      "main": [[{"node": "Répondre documents manquants", "type": "main", "index": 0}]]
+    },
+    "Webhook - Portefeuille": {
+      "main": [[{"node": "CRM - Consulter portefeuille", "type": "main", "index": 0}]]
+    },
+    "CRM - Consulter portefeuille": {
+      "main": [[{"node": "Formater portefeuille", "type": "main", "index": 0}]]
+    },
+    "Formater portefeuille": {
+      "main": [[{"node": "Répondre portefeuille", "type": "main", "index": 0}]]
+    },
+    "Webhook - Enregistrer dossier": {
+      "main": [[{"node": "CRM - Enregistrer dossier", "type": "main", "index": 0}]]
+    },
+    "CRM - Enregistrer dossier": {
+      "main": [[{"node": "Répondre enregistrement dossier", "type": "main", "index": 0}]]
     },
     "Agent conversationnel CRM": {
       "main": [[{"node": "Répondre à l’interface", "type": "main", "index": 0}]]

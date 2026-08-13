@@ -101,6 +101,177 @@ SET
     created_at = EXCLUDED.created_at,
     updated_at = EXCLUDED.updated_at;
 
+-- Cas de référence utilisé par la matrice des 100 questions de l'agent.
+INSERT INTO public.clients (
+    client_id,
+    representant_id,
+    nom_client,
+    telephone,
+    courriel,
+    type_emploi,
+    employeur,
+    revenu_annuel,
+    type_transaction,
+    prix_achat,
+    valeur_propriete,
+    solde_hypothecaire,
+    montant_financement,
+    mise_de_fonds,
+    provenance_mise_de_fonds,
+    dettes_totales,
+    objectif,
+    date_rappel,
+    statut_dossier,
+    niveau_confiance,
+    resume,
+    created_at,
+    updated_at
+)
+SELECT
+    '10000000-0000-4000-8000-000000000013'::uuid,
+    representant.representant_id,
+    'Benoît Tremblay',
+    '514-555-0113',
+    'benoit.tremblay@example.test',
+    'Salarié',
+    'Construction Québec',
+    98000::numeric,
+    'Refinancement',
+    525000::numeric,
+    550000::numeric,
+    310000::numeric,
+    390000::numeric,
+    '78 000 $ (20 %)',
+    'Épargne personnelle et RAP',
+    24000::numeric,
+    'Refinancer et consolider les dettes',
+    date '2026-08-18',
+    'En analyse',
+    'Élevé',
+    'Documents reçus en partie; analyse du financement en cours.',
+    timestamptz '2026-08-10 09:00:00-04',
+    timestamptz '2026-08-10 15:30:00-04'
+FROM public.representants representant
+WHERE representant.code_representant = '2026999999'
+ON CONFLICT (client_id) DO UPDATE
+SET
+    representant_id = EXCLUDED.representant_id,
+    nom_client = EXCLUDED.nom_client,
+    telephone = EXCLUDED.telephone,
+    courriel = EXCLUDED.courriel,
+    type_emploi = EXCLUDED.type_emploi,
+    employeur = EXCLUDED.employeur,
+    revenu_annuel = EXCLUDED.revenu_annuel,
+    type_transaction = EXCLUDED.type_transaction,
+    prix_achat = EXCLUDED.prix_achat,
+    valeur_propriete = EXCLUDED.valeur_propriete,
+    solde_hypothecaire = EXCLUDED.solde_hypothecaire,
+    montant_financement = EXCLUDED.montant_financement,
+    mise_de_fonds = EXCLUDED.mise_de_fonds,
+    provenance_mise_de_fonds = EXCLUDED.provenance_mise_de_fonds,
+    dettes_totales = EXCLUDED.dettes_totales,
+    objectif = EXCLUDED.objectif,
+    date_rappel = EXCLUDED.date_rappel,
+    statut_dossier = EXCLUDED.statut_dossier,
+    niveau_confiance = EXCLUDED.niveau_confiance,
+    resume = EXCLUDED.resume,
+    created_at = EXCLUDED.created_at,
+    updated_at = EXCLUDED.updated_at;
+
+INSERT INTO public.details_hypothecaires (
+    detail_id,
+    client_id,
+    representant_id,
+    preteur,
+    produit,
+    statut_approbation,
+    date_approbation,
+    conditions_approbation,
+    taux_interet,
+    type_taux,
+    terme_mois,
+    amortissement_annees,
+    date_fermeture,
+    date_decaissement,
+    notaire_nom,
+    notaire_telephone,
+    instructions_notaire_statut,
+    instructions_notaire_date,
+    evaluation_requise,
+    evaluation_statut,
+    evaluateur_nom,
+    evaluation_date,
+    valeur_evaluee,
+    assurance_requise,
+    assureur_pret,
+    assurance_statut,
+    prime_assurance,
+    created_at,
+    updated_at
+)
+SELECT
+    '50000000-0000-4000-8000-000000000013'::uuid,
+    client.client_id,
+    client.representant_id,
+    'Banque Nationale',
+    'Refinancement conventionnel',
+    'Approuvé conditionnel',
+    date '2026-08-12',
+    'Confirmation finale de l’emploi et relevé bancaire à jour',
+    4.7900::numeric,
+    'Fixe',
+    60,
+    25,
+    date '2026-09-15',
+    date '2026-09-14',
+    'Me Sophie Girard',
+    '514-555-0199',
+    'Envoyées',
+    date '2026-08-13',
+    true,
+    'Terminée',
+    'Évaluations Laurentides',
+    date '2026-08-11',
+    550000::numeric,
+    false,
+    NULL,
+    'Non requise',
+    0::numeric,
+    timestamptz '2026-08-10 15:30:00-04',
+    timestamptz '2026-08-13 11:00:00-04'
+FROM public.clients client
+WHERE client.client_id = '10000000-0000-4000-8000-000000000013'::uuid
+ON CONFLICT (detail_id) DO UPDATE
+SET
+    client_id = EXCLUDED.client_id,
+    representant_id = EXCLUDED.representant_id,
+    preteur = EXCLUDED.preteur,
+    produit = EXCLUDED.produit,
+    statut_approbation = EXCLUDED.statut_approbation,
+    date_approbation = EXCLUDED.date_approbation,
+    conditions_approbation = EXCLUDED.conditions_approbation,
+    taux_interet = EXCLUDED.taux_interet,
+    type_taux = EXCLUDED.type_taux,
+    terme_mois = EXCLUDED.terme_mois,
+    amortissement_annees = EXCLUDED.amortissement_annees,
+    date_fermeture = EXCLUDED.date_fermeture,
+    date_decaissement = EXCLUDED.date_decaissement,
+    notaire_nom = EXCLUDED.notaire_nom,
+    notaire_telephone = EXCLUDED.notaire_telephone,
+    instructions_notaire_statut = EXCLUDED.instructions_notaire_statut,
+    instructions_notaire_date = EXCLUDED.instructions_notaire_date,
+    evaluation_requise = EXCLUDED.evaluation_requise,
+    evaluation_statut = EXCLUDED.evaluation_statut,
+    evaluateur_nom = EXCLUDED.evaluateur_nom,
+    evaluation_date = EXCLUDED.evaluation_date,
+    valeur_evaluee = EXCLUDED.valeur_evaluee,
+    assurance_requise = EXCLUDED.assurance_requise,
+    assureur_pret = EXCLUDED.assureur_pret,
+    assurance_statut = EXCLUDED.assurance_statut,
+    prime_assurance = EXCLUDED.prime_assurance,
+    created_at = EXCLUDED.created_at,
+    updated_at = EXCLUDED.updated_at;
+
 INSERT INTO public.interactions (
     interaction_id,
     client_id,
@@ -124,7 +295,8 @@ FROM (
     VALUES
         ('20000000-0000-4000-8000-000000000001'::uuid, '10000000-0000-4000-8000-000000000001'::uuid, timestamptz '2026-08-09 10:00:00-04', 'Appel', 'Présentation du projet de premier achat.'),
         ('20000000-0000-4000-8000-000000000005'::uuid, '10000000-0000-4000-8000-000000000005'::uuid, timestamptz '2026-08-09 10:05:00-04', 'Courriel', 'Réception des informations préliminaires sur le plex.'),
-        ('20000000-0000-4000-8000-000000000012'::uuid, '10000000-0000-4000-8000-000000000012'::uuid, timestamptz '2026-08-09 10:12:00-04', 'Appel', 'Validation du budget et des documents requis.')
+        ('20000000-0000-4000-8000-000000000012'::uuid, '10000000-0000-4000-8000-000000000012'::uuid, timestamptz '2026-08-09 10:12:00-04', 'Appel', 'Validation du budget et des documents requis.'),
+        ('20000000-0000-4000-8000-000000000013'::uuid, '10000000-0000-4000-8000-000000000013'::uuid, timestamptz '2026-08-10 14:00:00-04', 'Suivi', 'Validation du revenu, de la mise de fonds et du montant de financement.')
 ) AS interaction(interaction_id, client_id, date_appel, type_interaction, resume)
 JOIN public.clients client ON client.client_id = interaction.client_id
 ON CONFLICT (interaction_id) DO UPDATE
@@ -161,7 +333,10 @@ FROM (
         ('30000000-0000-4000-8000-000000000011'::uuid, '10000000-0000-4000-8000-000000000011'::uuid, NULL::uuid, 'Preuve de mise de fonds', 'A recevoir'),
         ('30000000-0000-4000-8000-000000000012'::uuid, '10000000-0000-4000-8000-000000000012'::uuid, '20000000-0000-4000-8000-000000000012'::uuid, 'Pièce d’identité', 'Reçu'),
         ('30000000-0000-4000-8000-000000000013'::uuid, '10000000-0000-4000-8000-000000000012'::uuid, '20000000-0000-4000-8000-000000000012'::uuid, 'Preuve de revenu', 'A recevoir'),
-        ('30000000-0000-4000-8000-000000000014'::uuid, '10000000-0000-4000-8000-000000000012'::uuid, '20000000-0000-4000-8000-000000000012'::uuid, 'Relevé bancaire', 'A recevoir')
+        ('30000000-0000-4000-8000-000000000014'::uuid, '10000000-0000-4000-8000-000000000012'::uuid, '20000000-0000-4000-8000-000000000012'::uuid, 'Relevé bancaire', 'A recevoir'),
+        ('30000000-0000-4000-8000-000000000015'::uuid, '10000000-0000-4000-8000-000000000013'::uuid, '20000000-0000-4000-8000-000000000013'::uuid, 'État civil', 'A recevoir'),
+        ('30000000-0000-4000-8000-000000000016'::uuid, '10000000-0000-4000-8000-000000000013'::uuid, '20000000-0000-4000-8000-000000000013'::uuid, 'Lettre d''emploi', 'A recevoir'),
+        ('30000000-0000-4000-8000-000000000017'::uuid, '10000000-0000-4000-8000-000000000013'::uuid, '20000000-0000-4000-8000-000000000013'::uuid, 'Montant de la dette', 'A recevoir')
 ) AS document(document_id, client_id, interaction_id, document, statut)
 JOIN public.clients client ON client.client_id = document.client_id
 ON CONFLICT (document_id) DO UPDATE
@@ -199,7 +374,8 @@ FROM (
     VALUES
         ('40000000-0000-4000-8000-000000000001'::uuid, '10000000-0000-4000-8000-000000000001'::uuid, '20000000-0000-4000-8000-000000000001'::uuid, 'Envoyer la simulation de paiement', 'Préparer trois scénarios de paiement.', date '2026-08-10', 'Terminée'),
         ('40000000-0000-4000-8000-000000000005'::uuid, '10000000-0000-4000-8000-000000000005'::uuid, '20000000-0000-4000-8000-000000000005'::uuid, 'Valider la valeur de la propriété', 'Confirmer la valeur estimée du plex.', date '2026-08-11', 'En cours'),
-        ('40000000-0000-4000-8000-000000000012'::uuid, '10000000-0000-4000-8000-000000000012'::uuid, '20000000-0000-4000-8000-000000000012'::uuid, 'Relancer pour les preuves de revenu', 'Demander les deux dernières preuves de revenu.', date '2026-08-12', 'Ouverte')
+        ('40000000-0000-4000-8000-000000000012'::uuid, '10000000-0000-4000-8000-000000000012'::uuid, '20000000-0000-4000-8000-000000000012'::uuid, 'Relancer pour les preuves de revenu', 'Demander les deux dernières preuves de revenu.', date '2026-08-12', 'Ouverte'),
+        ('40000000-0000-4000-8000-000000000013'::uuid, '10000000-0000-4000-8000-000000000013'::uuid, '20000000-0000-4000-8000-000000000013'::uuid, 'Valider les documents restants', 'Relancer Benoît pour les trois pièces manquantes.', date '2026-08-18', 'Ouverte')
 ) AS tache(tache_id, client_id, interaction_id, titre, description, date_echeance, statut)
 JOIN public.clients client ON client.client_id = tache.client_id
 ON CONFLICT (tache_id) DO UPDATE
@@ -212,5 +388,93 @@ SET
     date_echeance = EXCLUDED.date_echeance,
     statut = EXCLUDED.statut,
     created_at = EXCLUDED.created_at;
+
+-- Profil et demande enrichis, entièrement fictifs, pour valider la fiche détaillée.
+UPDATE public.clients
+SET
+    prenom = 'Benoît',
+    nom = 'Tremblay',
+    date_naissance = date '1984-04-19',
+    telephone_type = 'Cellulaire',
+    canal_contact_prefere = 'Téléphone',
+    moment_contact_prefere = 'Soirée',
+    adresse_numero_civique = '1250',
+    adresse_rue = 'René-Lévesque',
+    adresse_type_rue = 'Boulevard',
+    adresse_ville = 'Québec',
+    adresse_province = 'Québec',
+    adresse_code_postal = 'G1R 2L3',
+    adresse_pays = 'Canada',
+    adresse_validee = true
+WHERE client_id = '10000000-0000-4000-8000-000000000013'::uuid;
+
+UPDATE public.details_hypothecaires
+SET
+    echeancier_projet = 'Dans les 6 prochains mois',
+    type_propriete = 'Maison unifamiliale',
+    type_occupation = 'Occupée par le propriétaire',
+    prix_achat = 525000,
+    mise_de_fonds = 78000,
+    montant_requis = 390000,
+    commentaires = 'Données fictives de démonstration du dossier enrichi.',
+    source_demande = 'Formulaire Web',
+    date_soumission = timestamptz '2026-08-10 14:00:00-04',
+    statut_soumission = 'Soumise'
+WHERE client_id = '10000000-0000-4000-8000-000000000013'::uuid;
+
+INSERT INTO public.participants_dossier (
+    participant_id, client_id, representant_id, role_participant,
+    prenom, nom, date_naissance, telephone, telephone_type, courriel,
+    meme_adresse_client, canal_contact_prefere, moment_contact_prefere
+)
+SELECT
+    '60000000-0000-4000-8000-000000000013'::uuid,
+    c.client_id, c.representant_id, 'Codemandeur',
+    'Marie', 'Tremblay', date '1986-07-12', '514-555-0120',
+    'Cellulaire', 'marie.tremblay@example.test', true, 'Courriel', 'Soirée'
+FROM public.clients c
+WHERE c.client_id = '10000000-0000-4000-8000-000000000013'::uuid
+ON CONFLICT (participant_id) DO UPDATE SET
+    representant_id = EXCLUDED.representant_id,
+    prenom = EXCLUDED.prenom,
+    nom = EXCLUDED.nom,
+    date_naissance = EXCLUDED.date_naissance,
+    telephone = EXCLUDED.telephone,
+    telephone_type = EXCLUDED.telephone_type,
+    courriel = EXCLUDED.courriel,
+    meme_adresse_client = EXCLUDED.meme_adresse_client,
+    canal_contact_prefere = EXCLUDED.canal_contact_prefere,
+    moment_contact_prefere = EXCLUDED.moment_contact_prefere,
+    updated_at = now();
+
+INSERT INTO public.consentements_dossier (
+    consentement_id, client_id, representant_id, type_consentement,
+    version_texte, accepte, accepte_at, canal, reference_preuve
+)
+SELECT
+    consentement.consentement_id,
+    c.client_id,
+    c.representant_id,
+    consentement.type_consentement,
+    '2026-08',
+    true,
+    timestamptz '2026-08-10 14:00:00-04',
+    'Formulaire Web',
+    consentement.reference_preuve
+FROM public.clients c
+CROSS JOIN (VALUES
+    ('70000000-0000-4000-8000-000000000011'::uuid, 'Recherche de crédit', 'CONSENT-CREDIT-DEMO'),
+    ('70000000-0000-4000-8000-000000000012'::uuid, 'Confidentialité et admissibilité', 'CONSENT-PRIV-DEMO'),
+    ('70000000-0000-4000-8000-000000000013'::uuid, 'Communications anti-pourriel', 'CONSENT-COMM-DEMO')
+) consentement(consentement_id, type_consentement, reference_preuve)
+WHERE c.client_id = '10000000-0000-4000-8000-000000000013'::uuid
+ON CONFLICT (consentement_id) DO UPDATE SET
+    representant_id = EXCLUDED.representant_id,
+    type_consentement = EXCLUDED.type_consentement,
+    version_texte = EXCLUDED.version_texte,
+    accepte = EXCLUDED.accepte,
+    accepte_at = EXCLUDED.accepte_at,
+    canal = EXCLUDED.canal,
+    reference_preuve = EXCLUDED.reference_preuve;
 
 COMMIT;

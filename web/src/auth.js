@@ -1,5 +1,17 @@
 import Keycloak from "keycloak-js";
 
+function clearCloudflareAccessMessage() {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("__cf_access_message")) return;
+
+  url.searchParams.delete("__cf_access_message");
+  window.history.replaceState(
+    window.history.state,
+    "",
+    `${url.pathname}${url.search}${url.hash}`
+  );
+}
+
 export async function initializeIdentity() {
   const configResponse = await fetch("/api/auth/config", {
     headers: { accept: "application/json" }
@@ -24,6 +36,8 @@ export async function initializeIdentity() {
     await keycloak.login({ redirectUri: window.location.href });
   }
 
+  clearCloudflareAccessMessage();
+
   async function apiFetch(resource, options = {}) {
     try {
       await keycloak.updateToken(30);
@@ -42,6 +56,9 @@ export async function initializeIdentity() {
     logout: () => keycloak.logout({ redirectUri: window.location.origin }),
     user: {
       email: keycloak.tokenParsed?.email ?? "",
+      role: keycloak.tokenParsed?.realm_access?.roles?.includes("admin")
+        ? "admin"
+        : "representant",
       name: keycloak.tokenParsed?.name
         ?? keycloak.tokenParsed?.preferred_username
         ?? "Représentant"

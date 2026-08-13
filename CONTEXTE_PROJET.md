@@ -171,6 +171,7 @@ Fonctions validées :
 - crm.obtenir_documents_client()
 - crm.obtenir_taches_client()
 - crm.obtenir_dossier_client()
+- crm.obtenir_clients_documents_manquants()
 
 Toutes les fonctions retournent du JSON.
 
@@ -297,8 +298,8 @@ Envoi Gmail
 
 ✔ Route serveur `POST /api/agent/messages` testée unitairement
 
-✔ Workflow Web de l’agent publié temporairement en local, sans JWT, pour la
-validation autorisée du MVP le 2026-08-09
+✔ Workflow Web sécurisé publié localement le 2026-08-10 avec identité Keycloak
+validée par l’API et contexte PostgreSQL dynamique
 
 ✔ Workflow manuel de l’agent enrichi d’un routeur d’intention à quatre sorties :
 clients récents, documents, tâches et conversation libre
@@ -311,6 +312,14 @@ documents, tâches et prochaine action, sans UUID
 
 ✔ Commande conversationnelle « afficher le dossier CLI-… » routée de façon
 déterministe vers `crm.obtenir_dossier_client()`
+
+✔ Parcours Web authentifié validé le 2026-08-10 : clients récents, dossier,
+documents et tâches par référence contextuelle, clarification et question libre
+Ollama; aucun avertissement ni erreur dans la console du navigateur
+
+✔ Consultation portefeuille des documents manquants validée de bout en bout :
+intention déterministe, migration 010, service CRM JSON, webhook n8n et bouton
+React; aucune référence au client actif ni aucun UUID dans la réponse
 
 ✔ Services PostgreSQL JSON versionnés
 
@@ -332,8 +341,8 @@ déterministe vers `crm.obtenir_dossier_client()`
 
 ## À développer
 
-- Remplacer l’identité de démonstration par un `representant_id` issu d’un JWT
-  validé côté serveur, puis retirer l’accès local temporaire sans JWT.
+- Étendre les tests conversationnels authentifiés de bout en bout et ajouter
+  l’observabilité structurée autour du `request_id` versionné.
 
 - Étendre le routage déterministe seulement aux nouvelles actions métier qui
   exigent une réponse reproductible. Les questions libres restent

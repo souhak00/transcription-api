@@ -10,6 +10,12 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
       KC_HEALTH_ENABLED: "true"
+      # Keycloak publie ses URL OIDC avec le nom HTTPS du tunnel, tout en
+      # continuant d'écouter en HTTP uniquement sur la boucle locale.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      KC_HOSTNAME_STRICT: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
     volumes:
       - keycloak_data:/opt/keycloak/data
       - ./keycloak/realm-crm-local.json:/opt/keycloak/data/import/realm-crm-local.json:ro
@@ -40,6 +46,18 @@ services:
       - ./database/002_access_control.sql:/docker-entrypoint-initdb.d/002_access_control.sql:ro
       # Execute la contrainte de format du code metier representant au premier demarrage du volume.
       - ./database/003_representant_business_code.sql:/docker-entrypoint-initdb.d/003_representant_business_code.sql:ro
+      - ./database/004_crm_services.sql:/docker-entrypoint-initdb.d/004_crm_services.sql:ro
+      - ./database/005_crm_runtime_security.sql:/docker-entrypoint-initdb.d/005_crm_runtime_security.sql:ro
+      - ./database/006_derniers_clients.sql:/docker-entrypoint-initdb.d/006_derniers_clients.sql:ro
+      - ./database/007_recherche_clients_minimisee.sql:/docker-entrypoint-initdb.d/007_recherche_clients_minimisee.sql:ro
+      - ./database/008_code_client_metier.sql:/docker-entrypoint-initdb.d/008_code_client_metier.sql:ro
+      - ./database/009_dossier_client_agent.sql:/docker-entrypoint-initdb.d/009_dossier_client_agent.sql:ro
+      - ./database/010_clients_documents_manquants.sql:/docker-entrypoint-initdb.d/010_clients_documents_manquants.sql:ro
+      - ./database/011_details_hypothecaires.sql:/docker-entrypoint-initdb.d/011_details_hypothecaires.sql:ro
+      - ./database/012_consultation_portefeuille.sql:/docker-entrypoint-initdb.d/012_consultation_portefeuille.sql:ro
+      - ./database/013_profil_demande_hypothecaire.sql:/docker-entrypoint-initdb.d/013_profil_demande_hypothecaire.sql:ro
+      - ./database/014_enregistrement_dossier.sql:/docker-entrypoint-initdb.d/014_enregistrement_dossier.sql:ro
+      - ./database/015_relations_dossiers_clients.sql:/docker-entrypoint-initdb.d/015_relations_dossiers_clients.sql:ro
     restart: unless-stopped
 
   # Service HTTP local appele par curl ou par le noeud HTTP Request de n8n.
@@ -71,15 +89,22 @@ services:
       # L API relaie les messages Web vers n8n; le navigateur ne connait pas cette URL.
       N8N_AGENT_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agent-chat
       N8N_RECENT_CLIENTS_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/clients-recents
+      N8N_MISSING_DOCUMENTS_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/documents-manquants
       N8N_CLIENT_DOSSIER_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/dossier-client
+      N8N_DOSSIER_WRITE_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/enregistrer-dossier
+      N8N_PORTFOLIO_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/portefeuille
       AGENT_TIMEOUT_MS: 120000
       # L’API valide les jetons Keycloak et extrait le representant_id signé.
-      KEYCLOAK_ISSUER: http://localhost:8080/realms/crm-local
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/crm-local}
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/crm-local/protocol/openid-connect/certs
       KEYCLOAK_AUDIENCE: crm-api
-      KEYCLOAK_PUBLIC_URL: http://localhost:8080
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
       KEYCLOAK_REALM: crm-local
       KEYCLOAK_CLIENT_ID: crm-web
+      # Compte technique confidentiel, limité à la gestion des utilisateurs Keycloak.
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
     volumes:
       # Conserve les transcriptions sur le disque meme si le conteneur est supprime.
       - ./outputs:/app/outputs
