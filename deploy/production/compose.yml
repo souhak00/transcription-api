@@ -1,0 +1,211 @@
+name: crm-hypothecaire
+
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - frontend
+    depends_on:
+      - transcription-api
+      - keycloak
+      - n8n
+    security_opt:
+      - no-new-privileges:true
+
+  postgres-crm:
+    build:
+      context: ../..
+      dockerfile: deploy/production/Postgres.Containerfile
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      KEYCLOAK_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      CRM_RUNTIME_PASSWORD: ${CRM_RUNTIME_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./runtime/migration:/migration:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    shm_size: 256mb
+    mem_limit: 2g
+    security_opt:
+      - no-new-privileges:true
+
+  keycloak:
+    build:
+      context: ../..
+      dockerfile: deploy/production/Keycloak.Containerfile
+    command: start --optimized --import-realm
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres-crm:5432/keycloak
+      KC_DB_USERNAME: keycloak_app
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: https://${AUTH_DOMAIN}
+      KC_HOSTNAME_STRICT: "true"
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_PROXY_TRUSTED_ADDRESSES: 172.30.0.0/24
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_HTTP_MAX_QUEUED_REQUESTS: "1000"
+    volumes:
+      - ${KEYCLOAK_REALM_IMPORT_PATH:-../../keycloak/realm-crm-production.json}:/opt/keycloak/data/import/realm-crm-production.json:ro
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      postgres-crm:
+        condition: service_healthy
+    mem_limit: 2g
+    security_opt:
+      - no-new-privileges:true
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.30.4
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      N8N_HOST: ${N8N_DOMAIN}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      N8N_EDITOR_BASE_URL: https://${N8N_DOMAIN}
+      WEBHOOK_URL: https://${N8N_DOMAIN}/
+      N8N_PROXY_HOPS: "1"
+      N8N_SECURE_COOKIE: "true"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      GENERIC_TIMEZONE: ${TZ}
+      TZ: ${TZ}
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      postgres-crm:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    mem_limit: 2g
+    security_opt:
+      - no-new-privileges:true
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    mem_limit: 9g
+    security_opt:
+      - no-new-privileges:true
+
+  transcription-api:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        VOSK_MODEL_URL: https://alphacephei.com/vosk/models/vosk-model-fr-0.22.zip
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      TRANSCRIBER_COMMAND: python3
+      TRANSCRIBER_ARGS: "scripts/vosk_transcribe.py --model /opt/vosk-model --input {input} --output {output} {diarizeArgs} {diarizationModelArgs}"
+      DIARIZATION_MODEL: pyannote/speaker-diarization-3.1
+      FFMPEG_AUDIO_FILTERS: highpass=f=80,lowpass=f=7800,loudnorm
+      MAX_UPLOAD_BODY_MB: "512"
+      N8N_AGENT_WEBHOOK_URL: http://n8n:5678/webhook/crm/agent-chat
+      N8N_RECENT_CLIENTS_WEBHOOK_URL: http://n8n:5678/webhook/crm/clients-recents
+      N8N_MISSING_DOCUMENTS_WEBHOOK_URL: http://n8n:5678/webhook/crm/documents-manquants
+      N8N_CLIENT_DOSSIER_WEBHOOK_URL: http://n8n:5678/webhook/crm/dossier-client
+      N8N_DOSSIER_WRITE_WEBHOOK_URL: http://n8n:5678/webhook/crm/enregistrer-dossier
+      N8N_PORTFOLIO_WEBHOOK_URL: http://n8n:5678/webhook/crm/portefeuille
+      AGENT_TIMEOUT_MS: "180000"
+      KEYCLOAK_ISSUER: https://${AUTH_DOMAIN}/realms/crm-local
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/crm-local/protocol/openid-connect/certs
+      KEYCLOAK_AUDIENCE: crm-api
+      KEYCLOAK_PUBLIC_URL: https://${AUTH_DOMAIN}
+      KEYCLOAK_REALM: crm-local
+      KEYCLOAK_CLIENT_ID: crm-web
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET}
+      HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:-}
+    volumes:
+      - transcription_outputs:/app/outputs
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      keycloak:
+        condition: service_started
+      n8n:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    mem_limit: 4g
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  frontend:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  backend:
+    ipam:
+      config:
+        - subnet: 172.31.0.0/24
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  n8n_data:
+  ollama_data:
+  transcription_outputs:

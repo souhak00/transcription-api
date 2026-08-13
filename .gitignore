@@ -1,8 +1,10 @@
 node_modules/
 web/dist/
 .env
+.env.production
 outputs/
 .runtime/
+deploy/production/runtime/
 *.log
 
 backups/

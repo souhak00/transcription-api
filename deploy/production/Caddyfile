@@ -1,0 +1,40 @@
+{
+	email {$ACME_EMAIL}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+}
+
+{$CRM_DOMAIN} {
+	import security_headers
+	reverse_proxy transcription-api:3000 {
+		health_uri /health
+		health_interval 30s
+		health_timeout 5s
+	}
+}
+
+{$AUTH_DOMAIN} {
+	import security_headers
+
+	@admin path /admin /admin/*
+	respond @admin 404
+
+	reverse_proxy keycloak:8080
+}
+
+{$N8N_DOMAIN} {
+	import security_headers
+
+	basic_auth {
+		{$N8N_PROXY_USER} {$N8N_PROXY_PASSWORD_HASH}
+	}
+
+	reverse_proxy n8n:5678
+}
