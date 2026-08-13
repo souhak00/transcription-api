@@ -25,6 +25,22 @@ cd /opt/crm-hypothecaire/deploy/production
 
 ## 2. Créer les secrets
 
+La méthode recommandée utilise le fichier `keycloak-admin-client.env` provenant de la sauvegarde de migration :
+
+```bash
+chmod +x prepare-secrets.sh
+./prepare-secrets.sh
+```
+
+Le script ne révèle aucun secret dans le terminal. Il crée :
+
+- `.env.production`, utilisé par Docker Compose;
+- `runtime/initial-secrets.txt`, à consulter une seule fois et à recopier immédiatement dans un gestionnaire de mots de passe.
+
+Après cette copie, conserver le fichier avec les permissions `600`; ne jamais le placer dans Git ou l’envoyer par courriel.
+
+### Méthode manuelle
+
 ```bash
 cp .env.production.example .env.production
 chmod 600 .env.production
