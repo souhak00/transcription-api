@@ -1,0 +1,290 @@
+{
+  "updatedAt": "2026-08-07T01:58:40.000Z",
+  "createdAt": "2026-07-31T01:48:35.215Z",
+  "id": "CrmAnalyseTexteV1",
+  "name": "CRM - Analyse transcription texte",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/analyser-transcription",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300001",
+      "name": "Webhook - Recevoir transcription",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -820,
+        0
+      ],
+      "webhookId": "478ed116-11ac-4baa-a291-074f50ec9237"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $input.first().json;\nconst body = request.body ?? request;\nconst transcript = body.transcript;\n\nif (typeof transcript !== 'string' || transcript.trim().length < 20) {\n  throw new Error('Le champ transcript est requis et doit contenir au moins 20 caractères.');\n}\n\nconst normalized = transcript.replace(/\\r\\n/g, '\\n').trim();\nconst maxCharacters = 12000;\nconst paragraphs = normalized.split(/\\n{2,}/);\nconst chunks = [];\nlet current = '';\n\nfor (const paragraph of paragraphs) {\n  if (paragraph.length > maxCharacters) {\n    if (current) {\n      chunks.push(current);\n      current = '';\n    }\n    for (let start = 0; start < paragraph.length; start += maxCharacters) {\n      chunks.push(paragraph.slice(start, start + maxCharacters));\n    }\n    continue;\n  }\n\n  const candidate = current ? `${current}\\n\\n${paragraph}` : paragraph;\n  if (candidate.length > maxCharacters) {\n    chunks.push(current);\n    current = paragraph;\n  } else {\n    current = candidate;\n  }\n}\n\nif (current) chunks.push(current);\n\nreturn chunks.map((chunk, index) => ({\n  json: {\n    segment_index: index,\n    nombre_segments: chunks.length,\n    source: body.source ?? null,\n    texte: chunk\n  }\n}));"
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300002",
+      "name": "Valider et découper",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Découpe sans sémantique métier. Aucun texte de test n'est stocké dans le workflow."
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const schema = {\n  segment_index: $json.segment_index,\n  dossiers: [{\n    participants: [],\n    type_transaction: null,\n    objectif: null,\n    emploi: [],\n    revenus: [],\n    dettes: [],\n    prix_achat_envisage: null,\n    mise_de_fonds_envisagee: null,\n    documents_requis: [],\n    taches: [],\n    prochaines_actions: [],\n    points_a_valider: [],\n    faits: [{\n      champ: null,\n      valeur: null,\n      preuve: null,\n      horodatage: null,\n      confiance: 'faible|moyenne|elevee'\n    }]\n  }],\n  conversation_distincte_detectee: false,\n  avertissements: []\n};\n\nconst prompt = [\n  'Tu extrais uniquement des faits CRM hypothécaires propres aux clients.',\n  'Retourne exclusivement un objet JSON valide respectant le schéma fourni.',\n  'N’invente aucune valeur et ne transforme pas un exemple général ou une information sur le courtier en donnée client.',\n  'Pour chaque fait, copie dans preuve un extrait VERBATIM de 5 à 200 caractères présent dans TRANSCRIPTION, sans le reformuler et sans ajouter de préambule.',\n  'N’ajoute dans faits que les informations propres aux clients. Une information sans extrait exact va dans points_a_valider.',\n  'Une information inaudible ou ambiguë va dans points_a_valider.',\n  'Signale si le segment contient une conversation ou un dossier distinct.',\n  `Segment ${$json.segment_index + 1} sur ${$json.nombre_segments}.`,\n  `SCHÉMA: ${JSON.stringify(schema)}`,\n  `TRANSCRIPTION:\\n${$json.texte}`\n].join('\\n\\n');\n\nreturn {\n  json: {\n    segment_index: $json.segment_index,\n    nombre_segments: $json.nombre_segments,\n    texte: $json.texte,\n    prompt\n  }\n};"
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300003",
+      "name": "Préparer extraction segment",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -300,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const texte = String($json.texte ?? '');\nconst groupesMotsCles = [\n  /\\b(emploi|employé|employe|employeur|profession|comptable|étudiant|etudiant|doctorat|temps partiel|contrat)\\b/gi,\n  /\\b(salaire|revenu|dette|mise de fonds|document|avis de cotisation)\\b/gi\n];\nconst extraits = [];\nconst plages = [];\n\nfor (const motsCles of groupesMotsCles) {\n  let correspondance;\n\n  while ((correspondance = motsCles.exec(texte)) !== null && extraits.length < 25) {\n    const debut = Math.max(0, correspondance.index - 180);\n    const fin = Math.min(texte.length, correspondance.index + correspondance[0].length + 320);\n    const chevauche = plages.some((plage) => debut < plage.fin && fin > plage.debut);\n\n    if (chevauche) {\n      continue;\n    }\n\n    extraits.push(texte.slice(debut, fin).trim());\n    plages.push({ debut, fin });\n  }\n}\n\nif (extraits.length === 0) {\n  return { json: $json };\n}\n\nreturn {\n  json: {\n    ...$json,\n    prompt: [\n      'EXTRAITS CRM PRIORITAIRES COPIES VERBATIM DU SEGMENT :',\n      ...extraits,\n      'FIN DES EXTRAITS PRIORITAIRES.',\n      '',\n      $json.prompt\n    ].join('\\n')\n  }\n};"
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300009",
+      "name": "Prioriser extraits CRM",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -210,
+        120
+      ],
+      "notesInFlow": true,
+      "notes": "Remonte les lignes contenant des mots-clés CRM; ne valide et n’invente aucun fait."
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300007",
+      "name": "Traiter segments séquentiellement",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -120,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Un seul appel Ollama à la fois pour éviter la saturation et les délais de file d’attente."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'mistral-nemo', prompt: 'CONTRAT STRICT : parcours tout le segment et extrais uniquement les faits CRM propres aux participants nommés. Les champs autorisés sont profession, statut_emploi, statut_etudes, revenu, dette, mise_de_fonds, prix_achat, type_transaction, objectif, document_requis et prochaine_action. N’utilise jamais une phrase des instructions comme fait ou comme preuve. La valeur doit être littéralement compatible avec la preuve : si la preuve dit qu’une étude est terminée, n’écris jamais en cours. N’extrais jamais amortissement, taux, prime, surprime, frais, taxe, règle, exemple, calcul, hypothèse ou conseil général. Place chaque information acceptée dans dossiers[].faits; laisse les autres collections vides.\\n\\n' + $json.prompt, stream: false, format: 'json', options: { temperature: 0, num_ctx: 8192, num_predict: 1400 } }) }}",
+        "options": {
+          "timeout": 1800000
+        }
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300004",
+      "name": "Ollama - Extraire segment",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -20,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "let parsed;\n\ntry {\n  parsed = typeof $json.response === 'string'\n    ? JSON.parse($json.response)\n    : $json.response;\n} catch (error) {\n  return {\n    json: {\n      ...$json,\n      normalisation_erreur: error.message\n    }\n  };\n}\n\nif (!parsed || !Array.isArray(parsed.dossiers)) {\n  return { json: $json };\n}\n\nconst collections = [\n  'faits',\n  'emploi',\n  'revenus',\n  'dettes',\n  'documents_requis',\n  'taches',\n  'prochaines_actions'\n];\n\nfor (const dossier of parsed.dossiers) {\n  const faits = [];\n  const dejaVus = new Set();\n\n  for (const collection of collections) {\n    const candidats = Array.isArray(dossier?.[collection])\n      ? dossier[collection]\n      : [];\n\n    for (const candidat of candidats) {\n      if (!candidat || typeof candidat !== 'object') continue;\n\n      let fait = collection === 'faits'\n        ? { ...candidat }\n        : { ...candidat, categorie_source: collection };\n\n      if (collection === 'documents_requis'\n        && (fait.valeur === null || fait.valeur === undefined)\n        && typeof fait.champ === 'string'\n        && fait.champ.trim() !== '') {\n        fait = { ...fait, champ: 'document_requis', valeur: fait.champ };\n      }\n\n      if (collection === 'prochaines_actions'\n        && (fait.valeur === null || fait.valeur === undefined)\n        && typeof fait.champ === 'string'\n        && fait.champ.trim() !== '') {\n        fait = { ...fait, champ: 'prochaine_action', valeur: fait.champ };\n      }\n\n      const cle = JSON.stringify([\n        fait.champ ?? null,\n        fait.valeur ?? null,\n        fait.preuve ?? null,\n        fait.horodatage ?? null\n      ]);\n\n      if (!dejaVus.has(cle)) {\n        dejaVus.add(cle);\n        faits.push(fait);\n      }\n    }\n  }\n\n  dossier.faits = faits;\n}\n\nreturn {\n  json: {\n    ...$json,\n    response: JSON.stringify(parsed)\n  }\n};"
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300008",
+      "name": "Normaliser faits structurés",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        120
+      ],
+      "notesInFlow": true,
+      "notes": "Fusionne les objets structurés dans faits avant la vérification exacte des preuves."
+    },
+    {
+      "parameters": {
+        "jsCode": "const sourceSegments = $('Valider et découper').all();\n\nconst normalize = (value) => String(value ?? '')\n  .normalize('NFKD')\n  .replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .toLowerCase();\n\nconst champsAutorises = new Set([\n  'profession', 'statut_emploi', 'statut_etudes', 'revenu', 'dette',\n  'mise_de_fonds', 'mise_de_fonds_envisagee', 'prix_achat',\n  'prix_achat_envisage', 'type_transaction', 'objectif',\n  'document_requis', 'documents_requis', 'prochaine_action',\n  'prochaines_actions'\n]);\n\nconst analyses = $input.all().map((item, index) => {\n  try {\n    const parsed = typeof item.json.response === 'string'\n      ? JSON.parse(item.json.response)\n      : item.json.response;\n    const source = sourceSegments[index]?.json?.texte ?? '';\n    const normalizedSource = normalize(source);\n    const dossiers = Array.isArray(parsed?.dossiers) ? parsed.dossiers : [];\n    const faits = dossiers.flatMap((dossier) =>\n      Array.isArray(dossier?.faits) ? dossier.faits : []\n    );\n\n    const faitsValides = [];\n    const faitsRejetes = [];\n\n    for (const fait of faits) {\n      const preuve = typeof fait?.preuve === 'string' ? fait.preuve.trim() : '';\n      const preuveNormalisee = normalize(preuve);\n      const champNormalise = normalize(fait?.champ).replace(/ /g, '_');\n      const champAutorise = champsAutorises.has(champNormalise);\n      const preuveRetrouvee = preuve.length >= 5\n        && normalizedSource.includes(preuveNormalisee);\n      const structureValide = typeof fait?.champ === 'string'\n        && fait.champ.trim() !== ''\n        && fait.valeur !== null\n        && fait.valeur !== undefined;\n      const preuveHypothetique = /\\b(mettons|par exemple|exemple|supposons|imaginons|si tu gagnes|regle facile)\\b/i\n        .test(preuveNormalisee);\n      const preuveCourtier = /\\bje suis (devenu )?courtier hypothecaire\\b/i\n        .test(preuveNormalisee);\n\n      if (preuveRetrouvee && structureValide && champAutorise && !preuveHypothetique && !preuveCourtier) {\n        faitsValides.push({ ...fait, preuve_verifiee: true });\n      } else {\n        faitsRejetes.push({\n          ...fait,\n          preuve_verifiee: false,\n          motif_rejet: !structureValide\n            ? 'champ ou valeur absent'\n            : !champAutorise\n              ? 'champ hors contrat CRM'\n              : preuveHypothetique\n                ? 'preuve issue d’un exemple ou d’une hypothèse'\n                : preuveCourtier\n                  ? 'information propre au courtier, pas au client'\n                  : 'preuve absente du segment source'\n        });\n      }\n    }\n\n    const professionsExplicites = source.matchAll(/\\b([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]+)\\s+lui est\\s+([A-Za-zÀ-ÖØ-öø-ÿ'’-]+)/g);\n    for (const correspondance of professionsExplicites) {\n      const preuve = correspondance[0];\n      const existe = faitsValides.some((fait) =>\n        normalize(fait.champ) === 'profession' && normalize(fait.preuve) === normalize(preuve)\n      );\n\n      if (!existe) {\n        faitsValides.push({\n          champ: 'profession',\n          sujet: correspondance[1],\n          valeur: correspondance[2],\n          preuve,\n          confiance: 'elevee',\n          methode_extraction: 'regle_explicitement_verifiee',\n          preuve_verifiee: true\n        });\n      }\n    }\n\n    return {\n      segment_index: parsed?.segment_index ?? index,\n      valide_json: true,\n      utilisable_pour_crm: faitsValides.length > 0,\n      faits_valides: faitsValides,\n      faits_rejetes: faitsRejetes,\n      suggestions_modele_non_validees: parsed\n    };\n  } catch (error) {\n    return {\n      segment_index: index,\n      valide_json: false,\n      utilisable_pour_crm: false,\n      faits_valides: [],\n      faits_rejetes: [],\n      suggestions_modele_non_validees: null,\n      erreur: error.message\n    };\n  }\n});\n\nconst invalides = analyses.filter((segment) => !segment.valide_json).length;\nconst faitsValides = analyses.reduce(\n  (total, segment) => total + segment.faits_valides.length,\n  0\n);\n\nreturn [{\n  json: {\n    statut: invalides === 0 ? 'prevalidation_terminee' : 'analyse_partielle',\n    nombre_segments: analyses.length,\n    segments_invalides: invalides,\n    nombre_faits_valides: faitsValides,\n    ecriture_crm_effectuee: false,\n    validation_humaine_requise: true,\n    analyses,\n    avertissements: [\n      'Seuls les faits_valides possèdent une preuve retrouvée dans le texte source.',\n      'Les suggestions_modele_non_validees ne doivent jamais alimenter le CRM.',\n      'La fusion et la résolution des contradictions exigent une validation humaine.'\n    ]\n  }\n}];"
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300005",
+      "name": "Assembler prévalidation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "id": "126f2b9b-c76b-4697-8c84-d2a80c300006",
+      "name": "Répondre JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        520,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Recevoir transcription": {
+      "main": [
+        [
+          {
+            "node": "Valider et découper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valider et découper": {
+      "main": [
+        [
+          {
+            "node": "Préparer extraction segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer extraction segment": {
+      "main": [
+        [
+          {
+            "node": "Prioriser extraits CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prioriser extraits CRM": {
+      "main": [
+        [
+          {
+            "node": "Traiter segments séquentiellement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Traiter segments séquentiellement": {
+      "main": [
+        [
+          {
+            "node": "Assembler prévalidation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ollama - Extraire segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Extraire segment": {
+      "main": [
+        [
+          {
+            "node": "Normaliser faits structurés",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normaliser faits structurés": {
+      "main": [
+        [
+          {
+            "node": "Traiter segments séquentiellement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assembler prévalidation": {
+      "main": [
+        [
+          {
+            "node": "Répondre JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "ac501e32-e985-4c96-b541-1299f7bde5ad",
+  "activeVersionId": "ac501e32-e985-4c96-b541-1299f7bde5ad",
+  "versionCounter": 31,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-07-31T01:48:35.222Z",
+      "createdAt": "2026-07-31T01:48:35.222Z",
+      "role": "workflow:owner",
+      "workflowId": "CrmAnalyseTexteV1",
+      "projectId": "VN1nbOvuajbWSkxr",
+      "project": {
+        "updatedAt": "2026-07-15T11:52:02.393Z",
+        "createdAt": "2026-07-15T03:09:45.555Z",
+        "id": "VN1nbOvuajbWSkxr",
+        "name": "hakim soussouhakim@yahoo.com <soussouhakim@yahoo.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "3c342ba3-d3d4-4563-8cb0-41f4c81408d7"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
