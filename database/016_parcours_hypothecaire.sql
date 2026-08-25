@@ -15,16 +15,16 @@ ALTER TABLE crm.etapes_parcours_hypothecaire OWNER TO crm_service_owner;
 INSERT INTO crm.etapes_parcours_hypothecaire (
     etape_code, ordre, titre, description, responsable_defaut, est_optionnelle
 ) VALUES
-    ('prise_mandat', 1, 'Premier contact et prise de mandat', 'Expliquer le role, la remuneration, les divulgations et formaliser le mandat lorsque requis.', 'courtier_hypothecaire', true),
-    ('analyse_projet', 2, 'Analyse de la situation et du projet', 'Recueillir le projet, les revenus, les dettes, le credit, la mise de fonds et les preferences.', 'courtier_hypothecaire', false),
-    ('prequalification', 3, 'Prequalification ou preautorisation', 'Etablir la capacite d emprunt et obtenir une prequalification ou une preautorisation.', 'courtier_hypothecaire', false),
-    ('recherche_propriete', 4, 'Recherche de propriete', 'Valider le budget et ajuster le scenario de financement pendant la recherche.', 'client_courtier_immobilier', true),
-    ('promesse_achat', 5, 'Promesse d achat et condition de financement', 'Consigner la promesse acceptee, la propriete, le prix, la mise de fonds et le delai de financement.', 'client', false),
-    ('montage_soumission', 6, 'Montage et soumission du dossier', 'Completer les pieces justificatives et transmettre le dossier aux preteurs appropries.', 'courtier_hypothecaire', false),
-    ('comparaison_options', 7, 'Presentation des options et recommandation', 'Comparer les taux, termes, penalites, remboursements anticipes et couts totaux.', 'courtier_hypothecaire', false),
-    ('approbation_finale', 8, 'Approbation finale du preteur', 'Obtenir l engagement ferme et satisfaire les conditions, notamment evaluation et assurance.', 'preteur_courtier', false),
-    ('coordination_notaire', 9, 'Coordination avec le notaire', 'Transmettre les instructions et verifier que les conditions de signature sont remplies.', 'courtier_notaire', false),
-    ('signature_decaissement', 10, 'Signature et deblocage des fonds', 'Confirmer la signature, l inscription de l hypotheque et le decaissement.', 'notaire', false),
+    ('prise_mandat', 1, 'Premier contact et prise de mandat', 'Expliquer le rôle, la rémunération, les divulgations et formaliser le mandat lorsque requis.', 'courtier_hypothecaire', true),
+    ('analyse_projet', 2, 'Analyse de la situation et du projet', 'Recueillir le projet, les revenus, les dettes, le crédit, la mise de fonds et les préférences.', 'courtier_hypothecaire', false),
+    ('prequalification', 3, 'Préqualification ou préautorisation', 'Établir la capacité d’emprunt et obtenir une préqualification ou une préautorisation.', 'courtier_hypothecaire', false),
+    ('recherche_propriete', 4, 'Recherche de propriété', 'Valider le budget et ajuster le scénario de financement pendant la recherche.', 'client_courtier_immobilier', true),
+    ('promesse_achat', 5, 'Promesse d’achat et condition de financement', 'Consigner la promesse acceptée, la propriété, le prix, la mise de fonds et le délai de financement.', 'client', false),
+    ('montage_soumission', 6, 'Montage et soumission du dossier', 'Compléter les pièces justificatives et transmettre le dossier aux prêteurs appropriés.', 'courtier_hypothecaire', false),
+    ('comparaison_options', 7, 'Présentation des options et recommandation', 'Comparer les taux, termes, pénalités, remboursements anticipés et coûts totaux.', 'courtier_hypothecaire', false),
+    ('approbation_finale', 8, 'Approbation finale du prêteur', 'Obtenir l’engagement ferme et satisfaire les conditions, notamment l’évaluation et l’assurance.', 'preteur_courtier', false),
+    ('coordination_notaire', 9, 'Coordination avec le notaire', 'Transmettre les instructions et vérifier que les conditions de signature sont remplies.', 'courtier_notaire', false),
+    ('signature_decaissement', 10, 'Signature et déblocage des fonds', 'Confirmer la signature, l’inscription de l’hypothèque et le décaissement.', 'notaire', false),
     ('suivi_post_transaction', 11, 'Suivi post-transaction', 'Planifier le suivi de satisfaction, le renouvellement et les futurs besoins de financement.', 'courtier_hypothecaire', true)
 ON CONFLICT (etape_code) DO UPDATE SET
     ordre = EXCLUDED.ordre,
