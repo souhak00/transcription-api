@@ -377,7 +377,7 @@
       "parameters": {
         "operation": "executeQuery",
         "query": "WITH contexte AS MATERIALIZED (\n  SELECT set_config('app.role', 'representant', true), set_config('app.representant_id', $1::uuid::text, true)\n)\nSELECT crm.consulter_portefeuille($2::jsonb, $3::jsonb, $4::integer, ARRAY(SELECT jsonb_array_elements_text($5::jsonb)), NULLIF($6, 'null')::jsonb) AS resultat FROM contexte;",
-        "options": { "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id, JSON.stringify($json.body.command?.parameters?.filters ?? {}), JSON.stringify($json.body.command?.parameters?.sort ?? []), $json.body.command?.parameters?.limit ?? 20, JSON.stringify($json.body.command?.conversation_context?.last_result_codes ?? []), JSON.stringify($json.body.command?.parameters?.aggregate ?? null)] }}" }
+        "options": { "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id, JSON.stringify($json.body.command?.parameters?.filters ?? {}), JSON.stringify($json.body.command?.parameters?.sort ?? []), $json.body.command?.parameters?.limit ?? 20, JSON.stringify($json.body.command?.parameters?.scope === 'selection' ? ($json.body.command?.conversation_context?.last_result_codes ?? []) : []), JSON.stringify($json.body.command?.parameters?.aggregate ?? null)] }}" }
       },
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.6,

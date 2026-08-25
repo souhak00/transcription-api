@@ -74,6 +74,7 @@ test("le workflow expose la consultation deterministe du portefeuille", async ()
   assert.equal(webhook.parameters.path, "crm/portefeuille");
   assert.match(service.parameters.query, /crm\.consulter_portefeuille/);
   assert.match(service.parameters.options.queryReplacement, /last_result_codes/);
+  assert.match(service.parameters.options.queryReplacement, /scope === 'selection'/);
   assert.match(formatter.parameters.jsCode, /priority_score/);
   assert.ok(workflow.connections[webhook.name]);
 });

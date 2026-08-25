@@ -77,6 +77,21 @@ test("normalizeAgentRequest détecte une demande d’affichage de dossier", () =
   );
 });
 
+test("normalizeAgentRequest reconnaît un dossier individuel avec un nom en minuscules", () => {
+  const input = normalizeAgentRequest({
+    message: "affiche le dossier de karine pelletier"
+  });
+
+  assert.equal(input.intent, "dossier_client");
+  assert.equal(input.clientReference, "karine pelletier");
+  assert.equal(input.scope, "single_client");
+  assert.equal(input.clarificationRequired, false);
+
+  const portfolio = normalizeAgentRequest({ message: "affiche tous les dossiers" });
+  assert.equal(portfolio.intent, "consultation_portefeuille");
+  assert.equal(portfolio.clientReference, null);
+});
+
 test("normalizeAgentRequest route les documents et les tâches sans dépendre du LLM", () => {
   assert.equal(
     normalizeAgentRequest({ message: "Quels documents manquent pour Chloé Simard ?" }).intent,
@@ -571,7 +586,10 @@ test("les consultations globales sont routees vers le portefeuille", () => {
     ["Afficher tous les dossiers", {}],
     ["Quels clients ont un dossier en analyse ?", { statut: "En analyse" }],
     ["Quel est mon client au plus gros revenu ?", {}],
-    ["Liste de tous les clients à relancer", { a_relancer: true }]
+    ["Liste de tous les clients à relancer", { a_relancer: true }],
+    ["affiche les dossier en retard", { a_relancer: true }],
+    ["affiche les dossiers préapprouvés", { statut: "Préapprouvé" }],
+    ["montre moi les dossier en analyse", { statut: "En analyse" }]
   ];
 
   for (const [message, filters] of cases) {
@@ -580,6 +598,36 @@ test("les consultations globales sont routees vers le portefeuille", () => {
     assert.equal(input.scope, "portfolio", message);
     assert.deepEqual(input.portfolio.filters, filters, message);
   }
+});
+
+test("une nouvelle recherche globale ignore le dernier dossier consulte", () => {
+  const context = {
+    activeClient: "CLI-2026-LC-000011",
+    lastResultCodes: ["CLI-2026-LC-000011"]
+  };
+
+  for (const message of [
+    "affiche les dossier en retard",
+    "affiche les dossiers préapprouvés",
+    "montre moi les dossier en analyse"
+  ]) {
+    const input = normalizeAgentRequest({ message, context });
+    const command = buildAgentCommand(input, representativeId);
+
+    assert.equal(input.intent, "consultation_portefeuille", message);
+    assert.equal(input.scope, "portfolio", message);
+    assert.deepEqual(input.portfolio.selectionCodes, [], message);
+    assert.deepEqual(command.conversation_context.last_result_codes, [], message);
+  }
+});
+
+test("les dossiers en retard sont tries par priorite", () => {
+  const input = normalizeAgentRequest({ message: "affiche les dossier en retard" });
+
+  assert.deepEqual(input.portfolio.filters, { a_relancer: true });
+  assert.deepEqual(input.portfolio.sort, [
+    { field: "priority_score", direction: "desc" }
+  ]);
 });
 
 test("une relance contextuelle reutilise les codes valides du dernier resultat", () => {
@@ -601,6 +649,10 @@ test("une relance contextuelle reutilise les codes valides du dernier resultat",
     "CLI-2026-OB-000015",
     "CLI-2026-CS-000014"
   ]);
+  assert.deepEqual(
+    buildAgentCommand(input, representativeId).conversation_context.last_result_codes,
+    ["CLI-2026-OB-000015", "CLI-2026-CS-000014"]
+  );
   assert.deepEqual(input.portfolio.sort, [{ field: "priority_score", direction: "desc" }]);
   assert.equal(input.portfolio.format, "table");
 });

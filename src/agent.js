@@ -18,7 +18,10 @@ const MISSING_TERM_PATTERN = /\b(?:manquants?|manquantes?|en attente|[àa] fourn
 const PORTFOLIO_TERM_PATTERN = /\b(?:quels? clients?|quelles? personnes?|qui|portefeuille|liste des clients|montre\w*\s+les clients|affiche\w*\s+les clients)\b/i;
 const PORTFOLIO_LIST_PATTERN = /\b(?:tous?|toutes?|chaque|liste|clients?|dossiers?|portefeuille)\b/i;
 const PORTFOLIO_ACTION_PATTERN = /\b(?:affich\w*|montr\w*|list\w*|class\w*|tri\w*|priori\w*|relanc\w*|plus gros|plus grand|revenu (?:le )?plus|tableau|tableur|export\w*)\b/i;
-const LAST_RESULT_PATTERN = /\b(?:les|ceux|celles|le tout|ces clients|ces dossiers)\b/i;
+// Une nouvelle demande globale (par exemple « affiche les dossiers en analyse »)
+// ne doit jamais être limitée aux résultats précédents. Seules les formulations
+// réellement anaphoriques réutilisent cette sélection.
+const LAST_RESULT_PATTERN = /\b(?:ceux|celles|le tout|ces clients|ces dossiers)\b|\b(?:class|tri|affich|montr)\w*-les\b/i;
 const PRODUCT_PATTERN = /\b(?:achat|refinanc\w*|renouvellement|pr[eé](?:approbation|qualification)|produit hypoth[eé]caire)\b/i;
 const DEFERRED_DOMAIN_PATTERN = /\b(?:r[eé]trocession|commission|r[eé]mun[eé]ration|Beacon|ratios?|endettement)\b/i;
 const NAME_STOP_WORDS = new Set([
@@ -77,6 +80,15 @@ export function extractExplicitClientReference(message) {
   const text = String(message ?? "").trim();
   const code = text.toUpperCase().match(/\bCLI-\d{4}-[A-Z]{2}-\d{6}\b/)?.[0];
   if (code) return code;
+
+  // Les utilisateurs écrivent souvent les noms entièrement en minuscules.
+  // Cette forme reste volontairement contrainte à « dossier/demande/fichier
+  // de|pour <nom> » en fin de phrase afin de ne pas transformer une requête
+  // globale (« afficher tous les dossiers ») en consultation individuelle.
+  const lowercaseContextualName = text.match(
+    /\b(?:dossier|demande|fichier)\s+(?:de|pour)\s+([\p{L}][\p{L}'’-]+(?:\s+[\p{L}][\p{L}'’-]+)?)(?=\s*[?.!]*$)/iu
+  )?.[1];
+  if (lowercaseContextualName) return lowercaseContextualName;
 
   const titledName = text.match(/\b(?:M(?:me)?|Monsieur|Madame)\.?\s+([\p{Lu}][\p{L}'’-]+(?:\s+[\p{Lu}][\p{L}'’-]+)?)/u)?.[1];
   if (titledName) return titledName;
@@ -228,7 +240,7 @@ export function detectPortfolioQuery(message, context = {}) {
     || (PORTFOLIO_LIST_PATTERN.test(text) && PORTFOLIO_ACTION_PATTERN.test(text));
   const aggregateIncome = /\b(?:plus (?:gros|grand|haut) revenu|revenu (?:le )?plus (?:gros|grand|haut)|gagne le plus)\b/i.test(text);
   const sortByPriority = /\b(?:class\w*|tri\w*|priori\w*|ordre de traitement)\b/i.test(text);
-  const followUp = /\b(?:a|à)\s+relancer\b|\brelanc\w*\b/i.test(text);
+  const followUp = /\b(?:a|à)\s+relancer\b|\brelanc\w*\b|\ben retard\b/i.test(text);
   const tableFormat = /\b(?:tableau|tableur|excel|csv|export\w*)\b/i.test(text);
 
   if (!(explicitPortfolio || refersToLastResult || aggregateIncome || followUp)) return null;
@@ -252,7 +264,7 @@ export function detectPortfolioQuery(message, context = {}) {
       ...(knownStatus ? { statut: knownStatus } : {}),
       ...(followUp ? { a_relancer: true } : {})
     },
-    sort: sortByPriority
+    sort: sortByPriority || followUp
       ? [{ field: "priority_score", direction: "desc" }]
       : /\bderniers?\b/i.test(text)
         ? [{ field: "updated_at", direction: "desc" }]

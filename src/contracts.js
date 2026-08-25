@@ -35,9 +35,11 @@ export function buildAgentCommand(input, representativeId) {
     },
     conversation_context: {
       active_client: input.context?.activeClient ?? null,
-      last_result_codes: Array.isArray(input.context?.lastResultCodes)
-        ? input.context.lastResultCodes
-        : []
+      // Une nouvelle consultation globale ne doit pas hériter d'un filtre caché.
+      // Une relance anaphorique expose explicitement sa sélection ici.
+      last_result_codes: input.intent === AGENT_INTENTS.PORTFOLIO_QUERY
+        ? (Array.isArray(input.portfolio?.selectionCodes) ? input.portfolio.selectionCodes : [])
+        : (Array.isArray(input.context?.lastResultCodes) ? input.context.lastResultCodes : [])
     },
     interpretation: {
       source: input.interpretationSource,
