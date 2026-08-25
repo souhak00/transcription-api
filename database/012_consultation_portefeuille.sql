@@ -62,7 +62,15 @@ AS $function$
         )
           AND (
             COALESCE(p_filters ->> 'statut', '') = ''
-            OR lower(c.statut_dossier) = lower(p_filters ->> 'statut')
+            OR translate(
+                lower(trim(c.statut_dossier)),
+                'àáâäãåçèéêëìíîïñòóôöõùúûüýÿ',
+                'aaaaaaceeeeiiiinooooouuuuyy'
+            ) = translate(
+                lower(trim(p_filters ->> 'statut')),
+                'àáâäãåçèéêëìíîïñòóôöõùúûüýÿ',
+                'aaaaaaceeeeiiiinooooouuuuyy'
+            )
           )
           AND (
             COALESCE((p_filters ->> 'a_relancer')::boolean, false) = false

@@ -20,6 +20,10 @@ WITH representant AS (
     SELECT representant_id, 'Client Revenu', 'revenu@example.test',
         150000, 'Nouveau', current_date + 10, now() - interval '1 day'
     FROM representant
+    UNION ALL
+    SELECT representant_id, 'Client Preapprouve', 'preapprouve@example.test',
+        95000, 'Preapprouve', current_date + 5, now() - interval '2 days'
+    FROM representant
     RETURNING client_id, representant_id, nom_client
 )
 INSERT INTO portefeuille_test_context
@@ -50,6 +54,16 @@ BEGIN
     IF (v_resultat ->> 'nombre_clients')::integer IS DISTINCT FROM 1
        OR v_resultat #>> '{rows,0,nom_client}' IS DISTINCT FROM 'Client Prioritaire' THEN
         RAISE EXCEPTION 'Filtrage portefeuille invalide: %', v_resultat;
+    END IF;
+
+    v_resultat := crm.consulter_portefeuille(
+        '{"statut":"Préapprouvé"}',
+        '[]',
+        20, NULL, NULL
+    );
+    IF (v_resultat ->> 'nombre_clients')::integer IS DISTINCT FROM 1
+       OR v_resultat #>> '{rows,0,nom_client}' IS DISTINCT FROM 'Client Preapprouve' THEN
+        RAISE EXCEPTION 'Filtrage sans accent invalide: %', v_resultat;
     END IF;
 
     v_resultat := crm.consulter_portefeuille(
