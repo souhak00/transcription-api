@@ -20,7 +20,12 @@ test("la sauvegarde normalise et filtre les champs CRM", () => {
       telephone: "+1 514 555-0101", adresse: { code_postal: "h2x 1y4" }
     },
     projet_hypothecaire: { prix_achat: "425000", statut_soumission: "Brouillon" },
-    participants: [{ role: "Codemandeur", prenom: "Marc", nom: "Roy" }]
+    participants: [{ role: "Codemandeur", prenom: "Marc", nom: "Roy" }],
+    parcours_hypothecaire: [{
+      code: "analyse_projet", statut: "en_cours", responsable: "Courtier",
+      date_echeance: "2026-09-15", notes: "Valider les revenus",
+      conditions: ["Avis de cotisation"]
+    }]
   });
 
   assert.equal(result.requestId, REQUEST_ID);
@@ -28,6 +33,8 @@ test("la sauvegarde normalise et filtre les champs CRM", () => {
   assert.equal(result.payload.profil_client.courriel, "alice@example.ca");
   assert.equal(result.payload.profil_client.adresse.code_postal, "H2X 1Y4");
   assert.equal(result.payload.projet_hypothecaire.prix_achat, 425000);
+  assert.equal(result.payload.parcours_hypothecaire[0].code, "analyse_projet");
+  assert.equal(result.payload.parcours_hypothecaire[0].date_echeance, "2026-09-15");
   assert.equal(result.payload.ignored, undefined);
 });
 
@@ -40,6 +47,10 @@ test("la validation bloque les coordonnées et montants invalides", () => {
     confirmed: true,
     projet_hypothecaire: { montant_requis: -1 }
   }), /montant/i);
+  assert.throws(() => normalizeDossierUpdate({
+    confirmed: true,
+    parcours_hypothecaire: [{ code: "etape_inconnue", statut: "complete" }]
+  }), /étape/i);
 });
 
 test("le transport transmet le représentant authentifié et le contrat filtré", async () => {

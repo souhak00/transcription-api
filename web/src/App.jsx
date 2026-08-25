@@ -72,6 +72,14 @@ const navItems = [
   { icon: FolderSearch2, label: "Dossiers", view: "dossiers" }
 ];
 
+const journeyStatusLabels = {
+  a_faire: "À faire",
+  en_cours: "En cours",
+  bloquee: "Bloquée",
+  complete: "Complétée",
+  non_applicable: "Non applicable"
+};
+
 function createSessionId() {
   return globalThis.crypto?.randomUUID?.() ?? `session-${Date.now()}`;
 }
@@ -164,6 +172,16 @@ function createDossierDraft(dossier) {
       meme_adresse_client: Boolean(participant.meme_adresse_client),
       canal_contact_prefere: participant.canal_contact_prefere ?? "",
       moment_contact_prefere: participant.moment_contact_prefere ?? ""
+    })),
+    parcours_hypothecaire: (dossier.parcours_hypothecaire?.etapes ?? []).map((stage) => ({
+      code: stage.code,
+      statut: stage.statut ?? "a_faire",
+      responsable: stage.responsable ?? "",
+      date_debut: String(stage.date_debut ?? "").slice(0, 10),
+      date_echeance: String(stage.date_echeance ?? "").slice(0, 10),
+      date_completion: String(stage.date_completion ?? "").slice(0, 10),
+      notes: stage.notes ?? "",
+      conditions: stage.conditions ?? []
     }))
   };
 }
@@ -297,6 +315,15 @@ function App({ identity }) {
         telephone: "", telephone_type: "", courriel: "", meme_adresse_client: true,
         canal_contact_prefere: "", moment_contact_prefere: ""
       }]
+    }));
+  }
+
+  function updateJourneyStage(index, field, value) {
+    setDossierDraft((current) => ({
+      ...current,
+      parcours_hypothecaire: current.parcours_hypothecaire.map((stage, stageIndex) =>
+        stageIndex === index ? { ...stage, [field]: value } : stage
+      )
     }));
   }
 
@@ -755,6 +782,8 @@ function App({ identity }) {
               const projet = dossier.projet_hypothecaire ?? {};
               const participants = dossier.participants ?? [];
               const consentements = dossier.consentements ?? [];
+              const journey = dossier.parcours_hypothecaire ?? {};
+              const journeyStages = journey.etapes ?? [];
 
               return (
                 <div className="dossier-content">
@@ -850,6 +879,40 @@ function App({ identity }) {
                         ))}
                       </fieldset>
 
+                      <fieldset disabled={dossierSaving}>
+                        <legend>Parcours hypothécaire</legend>
+                        <p className="journey-help">Mettez à jour l’avancement, le responsable et l’échéance de chaque étape. Les changements sont journalisés avec le dossier.</p>
+                        <div className="journey-editor-list">
+                          {dossierDraft.parcours_hypothecaire.map((stage, index) => {
+                            const definition = journeyStages.find((item) => item.code === stage.code) ?? {};
+                            return (
+                              <article className="journey-editor" key={stage.code}>
+                                <div className="journey-editor-heading">
+                                  <span>{definition.ordre ?? index + 1}</span>
+                                  <strong>{definition.titre ?? stage.code}</strong>
+                                </div>
+                                <div className="edit-grid">
+                                  <label className="edit-field">
+                                    <span>Statut</span>
+                                    <select value={stage.statut} onChange={(event) => updateJourneyStage(index, "statut", event.target.value)}>
+                                      {Object.entries(journeyStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                    </select>
+                                  </label>
+                                  <EditField label="Responsable" value={stage.responsable} onChange={(value) => updateJourneyStage(index, "responsable", value)} />
+                                  <EditField label="Début" type="date" value={stage.date_debut} onChange={(value) => updateJourneyStage(index, "date_debut", value)} />
+                                  <EditField label="Échéance" type="date" value={stage.date_echeance} onChange={(value) => updateJourneyStage(index, "date_echeance", value)} />
+                                  {stage.statut === "complete" && <EditField label="Complétée le" type="date" value={stage.date_completion} onChange={(value) => updateJourneyStage(index, "date_completion", value)} />}
+                                </div>
+                                <label className="edit-field edit-field-wide">
+                                  <span>Notes</span>
+                                  <textarea rows="2" maxLength="2000" value={stage.notes} onChange={(event) => updateJourneyStage(index, "notes", event.target.value)} />
+                                </label>
+                              </article>
+                            );
+                          })}
+                        </div>
+                      </fieldset>
+
                       <div className="consent-readonly-note"><ShieldCheck size={16} /> Les consentements ne sont jamais modifiés depuis ce formulaire.</div>
                       {dossierSaveError && <div className="dossier-error" role="alert">{dossierSaveError}</div>}
                       <label className="save-confirmation">
@@ -929,6 +992,35 @@ function App({ identity }) {
                         ))}
                       </ul>
                     ) : <p className="empty-records">Aucun codemandeur ou garant.</p>}
+                  </div>
+
+                  <div className="dossier-section">
+                    <div className="section-label"><CheckCircle2 size={17} /> Parcours hypothécaire</div>
+                    <div className="journey-summary">
+                      <div>
+                        <strong>{journey.progression_pourcentage ?? 0}%</strong>
+                        <span>du parcours complété</span>
+                      </div>
+                      <div className="journey-progress" role="progressbar" aria-valuenow={journey.progression_pourcentage ?? 0} aria-valuemin="0" aria-valuemax="100">
+                        <span style={{ width: `${journey.progression_pourcentage ?? 0}%` }} />
+                      </div>
+                      {journey.etape_courante && <p><strong>Étape courante :</strong> {journey.etape_courante.titre}</p>}
+                    </div>
+                    {journeyStages.length ? (
+                      <ol className="journey-list">
+                        {journeyStages.map((stage) => (
+                          <li className={`journey-stage ${stage.statut}`} key={stage.code}>
+                            <span className="journey-number">{stage.ordre}</span>
+                            <div>
+                              <strong>{stage.titre}</strong>
+                              <small>{journeyStatusLabels[stage.statut] ?? stage.statut} · {stage.responsable}</small>
+                              {stage.date_echeance && <small>Échéance : {formatDate(stage.date_echeance)}</small>}
+                              {stage.notes && <p>{stage.notes}</p>}
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : <p className="empty-records">Le parcours n’est pas encore initialisé.</p>}
                   </div>
 
                   <div className="dossier-section">

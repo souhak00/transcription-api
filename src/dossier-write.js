@@ -11,6 +11,15 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_PATTERN = /^[+()0-9 .-]{7,25}$/;
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const POSTAL_PATTERN = /^[A-Z]\d[A-Z][ -]?\d[A-Z]\d$/i;
+const PARCOURS_CODES = new Set([
+  "prise_mandat", "analyse_projet", "prequalification", "recherche_propriete",
+  "promesse_achat", "montage_soumission", "comparaison_options",
+  "approbation_finale", "coordination_notaire", "signature_decaissement",
+  "suivi_post_transaction"
+]);
+const PARCOURS_STATUSES = new Set([
+  "a_faire", "en_cours", "bloquee", "complete", "non_applicable"
+]);
 
 function text(value, field, max = MAX_TEXT) {
   if (value === null || value === undefined) return null;
@@ -143,6 +152,42 @@ function normalizeParticipants(value = []) {
   });
 }
 
+function normalizeJourney(value = []) {
+  if (!Array.isArray(value) || value.length > 11) {
+    throw new AgentRequestError("Le parcours hypothécaire est invalide.");
+  }
+  const codes = new Set();
+  return value.map((stage, index) => {
+    if (!stage || typeof stage !== "object" || Array.isArray(stage)) {
+      throw new AgentRequestError(`L’étape ${index + 1} du parcours est invalide.`);
+    }
+    const code = text(stage.code, "Le code de l’étape", 50);
+    const status = text(stage.statut, "Le statut de l’étape", 30);
+    if (!PARCOURS_CODES.has(code) || !PARCOURS_STATUSES.has(status) || codes.has(code)) {
+      throw new AgentRequestError(`L’étape ${index + 1} du parcours est invalide.`);
+    }
+    codes.add(code);
+    const conditions = stage.conditions ?? [];
+    if (!Array.isArray(conditions) || conditions.length > 20) {
+      throw new AgentRequestError(`Les conditions de l’étape ${index + 1} sont invalides.`);
+    }
+    return {
+      code,
+      statut: status,
+      responsable: text(stage.responsable, "Le responsable de l’étape", 80),
+      date_debut: date(stage.date_debut, "La date de début de l’étape"),
+      date_echeance: date(stage.date_echeance, "La date d’échéance de l’étape"),
+      date_completion: status === "complete"
+        ? date(stage.date_completion, "La date de fin de l’étape")
+        : null,
+      notes: text(stage.notes, "Les notes de l’étape", 2000),
+      conditions: conditions.map((condition, conditionIndex) =>
+        text(condition, `La condition ${conditionIndex + 1}`, 240)
+      ).filter(Boolean)
+    };
+  });
+}
+
 export function normalizeDossierUpdate(body = {}) {
   if (body.confirmed !== true) {
     throw new AgentRequestError("La confirmation de sauvegarde est requise.");
@@ -152,7 +197,8 @@ export function normalizeDossierUpdate(body = {}) {
     payload: {
       profil_client: normalizeProfile(body.profil_client),
       projet_hypothecaire: normalizeProject(body.projet_hypothecaire),
-      participants: normalizeParticipants(body.participants)
+      participants: normalizeParticipants(body.participants),
+      parcours_hypothecaire: normalizeJourney(body.parcours_hypothecaire)
     }
   };
 }

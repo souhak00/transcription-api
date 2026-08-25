@@ -58,6 +58,7 @@ services:
       - ./database/013_profil_demande_hypothecaire.sql:/docker-entrypoint-initdb.d/013_profil_demande_hypothecaire.sql:ro
       - ./database/014_enregistrement_dossier.sql:/docker-entrypoint-initdb.d/014_enregistrement_dossier.sql:ro
       - ./database/015_relations_dossiers_clients.sql:/docker-entrypoint-initdb.d/015_relations_dossiers_clients.sql:ro
+      - ./database/016_parcours_hypothecaire.sql:/docker-entrypoint-initdb.d/016_parcours_hypothecaire.sql:ro
     restart: unless-stopped
 
   # Service HTTP local appele par curl ou par le noeud HTTP Request de n8n.
