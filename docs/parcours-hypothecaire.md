@@ -35,3 +35,16 @@ Une étape conserve aussi le responsable, les dates de début, d’échéance et
 - Sécurité : aucune route ne reçoit un identifiant de représentant du navigateur; le contexte signé et les politiques RLS déterminent les dossiers visibles
 
 Les statuts initiaux des dossiers existants sont proposés à partir des données déjà présentes. Le courtier doit les valider dans le dossier; aucune déduction automatique ne remplace cette validation métier.
+
+## Portes documentaires cibles
+
+La progression demeure aujourd’hui modifiable par le courtier. L’API
+documentaire ajoutera des portes déterministes : identité et finances avant la
+préqualification, promesse d’achat avant le montage, dossier complet avant la
+soumission, conditions du prêteur avant l’approbation finale, puis assurance et
+exigences notariales avant la signature.
+
+Une porte bloquée retourne la liste des exigences non satisfaites. Seul un rôle
+autorisé peut accorder une dérogation avec motif et audit. L’IA peut suggérer une
+classification, mais ne complète jamais une porte. Voir
+[`gestion-documentaire-ocr.md`](./gestion-documentaire-ocr.md).

@@ -189,7 +189,9 @@ Chaque prochaine_action importante devient une tache exploitable.
 
 ### 4. Detection des documents requis
 
-L'IA produit une liste de documents manquants:
+La première version laisse l'IA produire une liste indicative de documents
+manquants. Cette liste libre est conservée pour compatibilité, mais elle ne
+constitue pas une checklist complète ou une décision de conformité.
 
 ```text
 Avis de cotisation
@@ -206,11 +208,29 @@ Valeur:
 - facilite la relance client;
 - standardise les demandes documentaires.
 
-Critere de validation:
+Critère historique de validation :
 
 ```text
 documents_requis contient une liste non vide quand le dossier est incomplet.
 ```
+
+Architecture cible :
+
+```text
+profil confirmé
+-> règles documentaires versionnées
+-> checklist par dossier et participant
+-> téléversement privé
+-> antivirus
+-> extraction PDF ou OCR
+-> extraction déterministe
+-> aide Ollama facultative
+-> validation humaine
+```
+
+Le critère cible exige que chaque document applicable soit explicable par une
+règle, associé à une étape du parcours et suivi jusqu’à acceptation, refus,
+expiration ou dérogation auditée. Voir `docs/gestion-documentaire-ocr.md`.
 
 ## Phase 2 - CRM intelligent (1 mois)
 
@@ -468,6 +488,9 @@ Indicateurs:
 | 8 | Tableau de bord | Moyenne |
 | 9 | Recherche IA dans les appels | Tres elevee |
 | 10 | Courriels automatiques | Elevee |
+| 11 | Catalogue et checklist documentaire déterministe | Très élevée |
+| 12 | Téléversement, antivirus et stockage objet | Très élevée |
+| 13 | OCR et validation humaine | Très élevée |
 
 ## Prochaine etape concrete
 
@@ -519,3 +542,17 @@ clients.
 L'analyse de transcription reste une prévalidation : elle ne crée ni client ni
 interaction tant que l'identité du client, le représentant et les faits retenus
 n'ont pas été confirmés.
+
+## Phase documentaire suivante
+
+1. Ajouter le catalogue, les règles et les instances de checklist.
+2. Relier chaque exigence au dossier, au participant et à l’étape du parcours.
+3. Ajouter le stockage objet, la quarantaine, ClamAV et le versionnement.
+4. Exécuter extraction PDF ou OCRmyPDF/Tesseract dans un worker séquentiel.
+5. Présenter les champs candidats à une validation humaine.
+6. Utiliser Ollama seulement pour les textes libres ou classifications ambiguës.
+7. Publier les événements validés vers n8n pour les relances.
+
+Le KVM 4 actuel suffit à une bêta avec une concurrence documentaire de 1 et un
+stockage externe. Les critères de surveillance sont dans
+`docs/capacite-hostinger.md`.

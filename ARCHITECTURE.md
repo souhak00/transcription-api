@@ -1,6 +1,6 @@
 # Architecture de la plateforme IA hypothécaire
 
-**Dernière mise à jour :** 2026-08-09
+**Dernière mise à jour :** 2026-08-25
 
 **Statut :** architecture de référence du MVP
 
@@ -26,8 +26,45 @@ détails utiles du pipeline historique de transcription.
 7. L’identité du représentant doit être contrôlée techniquement par l’API et
    PostgreSQL, jamais par une instruction donnée au modèle.
 8. L’interface Web ne communique jamais directement avec PostgreSQL.
+9. La checklist documentaire est déterministe, versionnée et explicable.
+10. L’OCR fonctionne sans Ollama; les suggestions IA nécessitent une validation
+    humaine avant de devenir des données officielles.
+11. Les fichiers hypothécaires résident dans un stockage objet privé; PostgreSQL
+    conserve les métadonnées, statuts, empreintes et audits.
 
-## Architecture actuelle implantée
+La conception détaillée de cette extension est autoritative dans
+[`docs/gestion-documentaire-ocr.md`](./docs/gestion-documentaire-ocr.md). La
+couverture fonctionnelle et le budget VPS sont respectivement décrits dans
+[`docs/checklist-documents-hypothecaires.md`](./docs/checklist-documents-hypothecaires.md)
+et [`docs/capacite-hostinger.md`](./docs/capacite-hostinger.md).
+
+## Architecture de production actuelle
+
+```mermaid
+flowchart TD
+    User["Représentant"] --> Web["React<br/>crm.toniaconseil.com"]
+    Web --> Auth["Keycloak<br/>auth.toniaconseil.com"]
+    Web --> API["API Node.js<br/>JWT et identité représentant"]
+    API --> N8N["n8n privé<br/>orchestration"]
+    API --> PG["Services crm.*<br/>PostgreSQL + RLS"]
+    N8N --> PG
+    N8N --> Ollama["Ollama mistral-nemo"]
+    API --> Web
+    Caddy["Caddy TLS"] --> Web
+    Caddy --> Auth
+    Caddy --> N8N
+```
+
+La production Hostinger expose seulement Caddy sur les ports 80 et 443. L’API,
+PostgreSQL, Keycloak, n8n et Ollama communiquent sur les réseaux Docker privés.
+Keycloak établit les rôles et l’attribut représentant; l’API et la RLS restent
+les autorités d’accès. Le parcours hypothécaire en 11 étapes est implanté.
+
+La gestion documentaire en production se limite encore à la table
+`documents_requis` : libellé, statut et date de demande. Elle ne contient pas
+encore les PDF, versions, contrôles antivirus, OCR ou validations.
+
+## Architecture historique locale implantée
 
 ```mermaid
 flowchart LR
@@ -65,7 +102,7 @@ flowchart LR
 | Workflow de transcription | Existant | Audio vers transcription, synthèse et sorties |
 | Workflow CRM `CrmEtatDossierV1` | Validé | Consultation d’un état de dossier et résumé IA |
 | Interface Web React | Version MVP construite | Point d’entrée responsive du représentant |
-| Authentification API | Non implantée | Identification et autorisation |
+| Authentification API | Implantée | Keycloak, JWT RS256, rôles et identité représentant |
 
 ## Couche de services PostgreSQL
 
@@ -347,7 +384,7 @@ Le mot de passe local de `crm_runtime` est maintenant défini et l’identifiant
 n8n `Postgres CRM Runtime` est associé aux outils et aux appels déterministes
 du MVP. Aucun secret n’est versionné.
 
-## Architecture cible du MVP
+## Architecture cible du MVP documentaire
 
 Le MVP sera présenté avec une interface Web authentifiée. L’API existante
 Node.js/Express sera étendue; l’introduction d’un deuxième backend FastAPI
@@ -366,6 +403,12 @@ flowchart TD
     Tasks["Tool<br/>Obtenir tâches"]
     N8N["n8n<br/>orchestration"]
     PG["PostgreSQL + RLS<br/>services métier crm.* en JSON"]
+    Rules["Moteur de checklist<br/>règles versionnées"]
+    DocApi["Module API documentaire"]
+    Queue["File persistante"]
+    Worker["Antivirus, extraction PDF<br/>OCRmyPDF / Tesseract"]
+    Objects["Stockage objet privé<br/>S3 / MinIO local"]
+    Review["Validation humaine"]
 
     User --> Web --> Auth --> Identity --> Agent
     Agent <-->|"intention et réponse naturelle"| Ollama
@@ -378,6 +421,12 @@ flowchart TD
     N8N -->|"app.role + representant_id validé"| PG
     PG -->|"JSON autorisé par la RLS"| N8N
     N8N --> Agent --> Web
+    Identity --> Rules --> PG
+    Identity --> DocApi --> Queue --> Worker
+    DocApi --> Objects
+    Worker --> Objects
+    Worker -->|"suggestion si ambigu"| Ollama
+    Worker --> Review --> DocApi --> PG
 ```
 
 L’agent conversationnel est une couche logique contrôlée par l’API Node.js.
@@ -390,6 +439,13 @@ outil possède un contrat JSON précis et délègue son exécution à n8n; n8n a
 uniquement les fonctions PostgreSQL `crm.*`. L’agent et Ollama ne disposent
 d’aucun accès direct aux tables.
 
+Le module documentaire est d’abord développé dans le backend Node existant afin
+de conserver un déploiement simple. Le worker est un processus séparé pour ne
+pas bloquer les requêtes Web. Un PDF textuel est extrait directement; seules les
+pages numérisées passent par l’OCR. Ollama est une aide facultative après OCR,
+jamais le moteur OCR ni l’autorité de validation. Les événements validés sont
+transmis à n8n pour les rappels et intégrations.
+
 ### Frontières de confiance
 
 | Couche | Peut faire | Ne doit jamais faire |
@@ -400,6 +456,10 @@ d’aucun accès direct aux tables.
 | n8n | Orchestrer des appels de services | Porter les règles métier ou autoriser un accès |
 | PostgreSQL | Appliquer métier et isolation | Accepter une connexion applicative superutilisateur |
 | Ollama | Comprendre l’intention et formuler la réponse | Lire les tables ou décider des autorisations |
+| Moteur de checklist | Appliquer des règles versionnées et expliquer chaque exigence | Déduire une obligation depuis un prompt non validé |
+| API documentaire | Autoriser, versionner et auditer le cycle des fichiers | Exposer directement le stockage privé |
+| Worker OCR | Contrôler, extraire et produire des champs candidats | Écrire une donnée officielle sans validation |
+| Stockage objet | Conserver les fichiers chiffrés et privés | Remplacer l’audit ou la RLS des métadonnées |
 
 ### Contrat conversationnel cible
 
@@ -610,6 +670,7 @@ Connexion du représentant
 | --- | --- |
 | Modèle relationnel | `database/001_crm_postgresql.sql` |
 | Relations dossier-clients | `database/015_relations_dossiers_clients.sql` |
+| Parcours hypothécaire | `database/016_parcours_hypothecaire.sql` et `docs/parcours-hypothecaire.md` |
 | RLS actuelle | `database/002_access_control.sql` |
 | Services CRM | `database/004_crm_services.sql` |
 | Rôle d’exécution préparé | `database/005_crm_runtime_security.sql` |
@@ -618,6 +679,11 @@ Connexion du représentant
 | Test dossier multi-clients | `tests/sql/relations_dossiers_clients_test.sql` |
 | Workflow CRM validé | `n8n-workflows/crm_etat_dossier_valide.json` |
 | Prompt CRM | `prompts/crm_resume_etat_dossier.md` |
+| Architecture documentaire | `docs/gestion-documentaire-ocr.md` |
+| Couverture de la checklist | `docs/checklist-documents-hypothecaires.md` |
+| Décision API/OCR | `docs/ADR/ADR-006-api-documentaire-ocr.md` |
+| Capacité Hostinger | `docs/capacite-hostinger.md` |
+| Déploiement Hostinger | `deploy/production/README.md` |
 | Contexte permanent | `CONTEXTE_PROJET.md` |
 
 ---
@@ -1390,3 +1456,13 @@ La migration correspondante est:
 ```text
 database/002_access_control.sql
 ```
+# Extension locale — agenda et rappels
+
+La plateforme comprend maintenant une frontière métier d’agenda : React appelle
+l’API authentifiée, l’API transmet uniquement l’identité issue de Keycloak à n8n,
+et n8n invoque les fonctions PostgreSQL `crm.consulter_agenda` et
+`crm.creer_evenement_agenda`. Les événements et rappels sont reliés au
+représentant, au client, au dossier et à l’étape hypothécaire. La RLS forcée
+garantit qu’un représentant ne consulte que ses propres éléments. L’interprétation
+des périodes usuelles (aujourd’hui, demain, semaine, mois, rappels échus) est
+déterministe; Ollama n’est pas dans le chemin critique de cette consultation.

@@ -1,5 +1,11 @@
 # Sauvegarde et restauration n8n
 
+> Cette procédure sauvegarde n8n, ses workflows et ses credentials. Elle ne
+> sauvegarde pas les futurs fichiers hypothécaires. Ceux-ci seront conservés
+> dans un stockage objet privé avec une politique séparée décrite dans
+> [`gestion-documentaire-ocr.md`](./gestion-documentaire-ocr.md). PostgreSQL,
+> Keycloak et le stockage objet exigent chacun leur propre sauvegarde.
+
 La sauvegarde n8n utilise deux niveaux complémentaires.
 
 ## 1. Workflows versionnés dans Git

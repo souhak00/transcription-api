@@ -1,6 +1,9 @@
 # Déploiement de production sur Hostinger
 
-Cette configuration déploie l’interface CRM et son API, PostgreSQL, Keycloak, n8n, Ollama et Caddy sur un VPS Docker.
+Cette configuration déploie l’interface CRM et son API, PostgreSQL, Keycloak,
+n8n, Ollama et Caddy sur un VPS Docker. L’extension documentaire cible ajoutera
+un worker OCR, ClamAV et un stockage objet; ces services ne sont pas encore
+présents dans `compose.yml`.
 
 ## Exposition réseau
 
@@ -143,6 +146,44 @@ Dans n8n, vérifier les deux credentials restaurés :
 
 Ne jamais exposer directement les ports `5432`, `5678`, `8080` ou `11434` sur le VPS.
 
+## Extension documentaire prévue
+
+L’architecture et les responsabilités sont définies dans
+[`../../docs/gestion-documentaire-ocr.md`](../../docs/gestion-documentaire-ocr.md).
+Avant d’activer le téléversement en production :
+
+1. choisir un stockage S3 privé externe et créer un compartiment non public;
+2. ajouter le worker documentaire et ClamAV sur le réseau privé;
+3. configurer une file persistante avec une concurrence initiale de 1;
+4. limiter taille, MIME et durée des téléversements signés;
+5. configurer la suppression des temporaires et la rétention;
+6. sauvegarder PostgreSQL et les objets dans des destinations distinctes;
+7. vérifier les rôles Keycloak et la RLS des nouvelles tables;
+8. confirmer que l’OCR fonctionne lorsque Ollama est arrêté.
+
+MinIO est acceptable en local. Sur le VPS, un stockage objet externe est
+recommandé afin qu’une panne ou perte du serveur ne détruise pas simultanément
+l’application et ses documents.
+
+### Capacité du KVM 4
+
+Le profil de référence 4 vCPU, 16 Go RAM et 200 Go NVMe convient à une bêta si
+les travaux OCR sont séquentiels. Ollama chargé peut consommer la majorité de la
+RAM; il doit être appelé seulement pour les documents ambigus. Ne pas lancer
+plusieurs OCR en parallèle avant d’avoir mesuré la charge.
+
+Surveillance minimale :
+
+```bash
+docker stats --no-stream
+docker system df
+free -h
+df -h /
+```
+
+Le budget complet et les seuils d’évolution sont dans
+[`../../docs/capacite-hostinger.md`](../../docs/capacite-hostinger.md).
+
 ## 7. Vérifications
 
 ```bash
@@ -162,4 +203,7 @@ docker compose --env-file .env.production -f compose.yml pull
 docker compose --env-file .env.production -f compose.yml up -d --build
 ```
 
-Avant toute mise à jour, effectuer une sauvegarde PostgreSQL et n8n. Ne pas utiliser `docker compose down -v`, car l’option `-v` supprimerait les volumes de données.
+Avant toute mise à jour, effectuer une sauvegarde PostgreSQL et n8n. Lorsque le
+module documentaire sera actif, sauvegarder aussi les métadonnées, la
+configuration du stockage et les objets hors du VPS. Ne pas utiliser
+`docker compose down -v`, car l’option `-v` supprimerait les volumes de données.

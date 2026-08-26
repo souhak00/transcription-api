@@ -18,15 +18,31 @@ Les actions pour ameliorer la qualite de transcription sont decrites dans [AMELI
 Le modele de donnees client/representant et l'evolution CRM du POC sont decrits dans [CRM_HYPOTHECAIRE_POC.md](./CRM_HYPOTHECAIRE_POC.md).
 La feuille de route de l'assistant hypothecaire intelligent est disponible dans [ROADMAP_ASSISTANT_HYPOTHECAIRE.md](./ROADMAP_ASSISTANT_HYPOTHECAIRE.md).
 Le script PostgreSQL de depart pour la Phase 2 est disponible dans [database/001_crm_postgresql.sql](./database/001_crm_postgresql.sql).
+L’architecture cible de collecte, OCR, extraction et validation des pièces est
+décrite dans [docs/gestion-documentaire-ocr.md](./docs/gestion-documentaire-ocr.md).
+L’index complet se trouve dans [docs/README.md](./docs/README.md).
+Le MVP local d’agenda, de rencontres et de rappels est décrit dans
+[docs/agenda-rappels.md](./docs/agenda-rappels.md).
+La couverture de la checklist hypothécaire est suivie dans
+[docs/checklist-documents-hypothecaires.md](./docs/checklist-documents-hypothecaires.md),
+et le budget de capacité du VPS Hostinger dans
+[docs/capacite-hostinger.md](./docs/capacite-hostinger.md).
 
 ## État du MVP
 
+
 - API locale de transcription : fonctionnelle.
+- Agenda local : vue hebdomadaire, création de rencontres et rappels,
+  rattachement au client/dossier/étape et questions déterministes dans l’assistant.
 - PostgreSQL et services métier `crm.*` : fonctionnels.
 - Workflow n8n CRM `CrmEtatDossierV1` : importé et exécuté avec succès.
 - Workflow texte `CrmAnalyseTexteV1` : publié; prévalidation JSON séquentielle,
   preuves verbatim, liste blanche CRM et validation humaine obligatoire.
 - Ollama `mistral-nemo` : réponse française validée à partir du JSON CRM.
+- Gestion documentaire actuelle : suivi de libellés et statuts dans
+  `documents_requis`; le téléversement hypothécaire, le stockage objet, l’OCR,
+  la validation et les règles conditionnelles sont documentés comme prochaine
+  évolution. L’OCR cible ne dépend pas d’Ollama.
 - Isolation RLS : politiques forcées, rôles `crm_service_owner` et
   `crm_runtime` appliqués; test d’isolation réussi. Le mot de passe local du
   rôle restreint est défini hors dépôt; l’identifiant n8n

@@ -3,6 +3,7 @@ import {
   ArrowUp,
   Bot,
   BriefcaseBusiness,
+  CalendarDays,
   CheckCircle2,
   CircleDollarSign,
   Clock3,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import AdminRepresentatives from "./AdminRepresentatives.jsx";
 import PortfolioViews from "./PortfolioViews.jsx";
+import CalendarView from "./CalendarView.jsx";
 
 const initialMessages = [
   {
@@ -69,7 +71,8 @@ const navItems = [
   { icon: LayoutDashboard, label: "Vue d’ensemble", view: "overview" },
   { icon: MessageSquareText, label: "Assistant", view: "assistant" },
   { icon: UsersRound, label: "Clients", view: "clients" },
-  { icon: FolderSearch2, label: "Dossiers", view: "dossiers" }
+  { icon: FolderSearch2, label: "Dossiers", view: "dossiers" },
+  { icon: CalendarDays, label: "Agenda", view: "calendar" }
 ];
 
 const journeyStatusLabels = {
@@ -270,6 +273,7 @@ function App({ identity }) {
     assistant: ["Espace conseiller", "Suivi des clients"],
     clients: ["Portefeuille", "Clients"],
     dossiers: ["Suivi hypothécaire", "Dossiers"],
+    calendar: ["Planification", "Agenda et rappels"],
     administration: ["Sécurité de la plateforme", "Administration"]
   };
 
@@ -605,6 +609,11 @@ function App({ identity }) {
 
         {activeView === "administration" ? (
           <AdminRepresentatives identity={identity} />
+        ) : activeView === "calendar" ? (
+          <CalendarView identity={identity} onOpenDossier={(code) => {
+            setActiveView("assistant");
+            loadClientDossier(code);
+          }} />
         ) : activeView !== "assistant" ? (
           <PortfolioViews
             view={activeView}

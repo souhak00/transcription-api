@@ -103,3 +103,19 @@ test("le brouillon historique a identite fixe reste desactive", async () => {
   assert.equal(legacyWorkflow.active, false);
   assert.match(legacyWorkflow.name, /ARCHIVE|NE PAS ACTIVER/i);
 });
+
+test("le workflow agenda initialise le contexte et sépare lecture et écriture", async () => {
+  const agendaUrl = new URL("../../n8n-workflows/crm_agenda_mvp.json", import.meta.url);
+  const workflow = JSON.parse(await readFile(agendaUrl, "utf8"));
+  const webhooks = workflow.nodes.filter((node) => node.type === "n8n-nodes-base.webhook");
+  const postgresNodes = workflow.nodes.filter((node) => node.type === "n8n-nodes-base.postgres");
+
+  assert.deepEqual(webhooks.map((node) => node.parameters.path).sort(), [
+    "crm/agenda", "crm/agenda/evenements", "crm/agenda/evenements/modifier"
+  ]);
+  assert.equal(postgresNodes.length, 3);
+  for (const node of postgresNodes) {
+    assert.match(node.parameters.query, /set_config\('app\.representant_id'/);
+    assert.match(node.parameters.query, /crm\.(consulter_agenda|creer_evenement_agenda|modifier_evenement_agenda)/);
+  }
+});

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   AgentRequestError,
+  detectCalendarQuery,
   detectPortfolioQuery,
   extractClientDossier,
   extractExplicitClientReference,
@@ -26,6 +27,40 @@ import {
 } from "../../src/contracts.js";
 
 const representativeId = "ac7b7a4b-907e-4733-a0de-4e5ed40e6af0";
+
+test("les demandes d’agenda et de rappels sont interprétées sans LLM", () => {
+  const now = new Date("2026-08-25T14:00:00-04:00");
+  const tomorrow = detectCalendarQuery("Quelles rencontres ai-je demain?", now);
+  assert.equal(tomorrow.period, "tomorrow");
+  assert.equal(tomorrow.remindersOnly, false);
+
+  const reminder = normalizeAgentRequest({ message: "Affiche mes rappels de la semaine" });
+  assert.equal(reminder.intent, "consultation_rappels");
+  assert.equal(reminder.calendar.period, "week");
+
+  const agenda = normalizeAgentRequest({ message: "Qu’ai-je dans mon agenda aujourd’hui?" });
+  assert.equal(agenda.intent, "consultation_agenda");
+  assert.equal(agenda.interpretationSource, "deterministic");
+
+  const overdue = normalizeAgentRequest({ message: "Quels rappels sont en retard?" });
+  assert.equal(overdue.intent, "consultation_rappels");
+  assert.equal(overdue.calendar.period, "overdue");
+  assert.equal(overdue.calendar.overdue, true);
+
+  const mutation = normalizeAgentRequest({ message: "Rappelle-moi d’appeler le client demain" });
+  assert.equal(mutation.intent, "consultation_rappels");
+  assert.equal(mutation.calendar.mutationRequested, true);
+});
+
+test("les périodes d’agenda suivent Toronto indépendamment du fuseau du serveur", () => {
+  const now = new Date("2026-08-26T02:00:00.000Z");
+  const today = detectCalendarQuery("Montre mon agenda aujourd’hui", now);
+  const overdue = detectCalendarQuery("Quels rappels sont en retard?", now);
+
+  assert.equal(today.start, "2026-08-25T04:00:00.000Z");
+  assert.equal(today.end, "2026-08-26T04:00:00.000Z");
+  assert.equal(overdue.end, now.toISOString());
+});
 
 test("extractUniqueClientCode sélectionne uniquement un client non ambigu", () => {
   assert.equal(

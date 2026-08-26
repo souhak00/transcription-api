@@ -24,6 +24,8 @@ const PORTFOLIO_ACTION_PATTERN = /\b(?:affich\w*|montr\w*|list\w*|class\w*|tri\w
 const LAST_RESULT_PATTERN = /\b(?:ceux|celles|le tout|ces clients|ces dossiers)\b|\b(?:class|tri|affich|montr)\w*-les\b/i;
 const PRODUCT_PATTERN = /\b(?:achat|refinanc\w*|renouvellement|pr[eé](?:approbation|qualification)|produit hypoth[eé]caire)\b/i;
 const DEFERRED_DOMAIN_PATTERN = /\b(?:r[eé]trocession|commission|r[eé]mun[eé]ration|Beacon|ratios?|endettement)\b/i;
+const CALENDAR_TERM_PATTERN = /\b(?:agenda|calendrier|rendez-vous|rencontres?|disponibilit[eé]s?|rappels?|rappelle)\b/i;
+const REMINDER_TERM_PATTERN = /\b(?:rappels?|rappelle|relances?)\b/i;
 const NAME_STOP_WORDS = new Set([
   "As", "A", "Au", "Aux", "Avec", "Combien", "Comment", "Dans", "De", "Des", "Du",
   "Est", "Le", "La", "Les", "Liste", "Montre", "Où", "Peux", "Pour", "Quel", "Quelle",
@@ -276,6 +278,85 @@ export function detectPortfolioQuery(message, context = {}) {
   };
 }
 
+function zonedDateParts(date, timeZone = "America/Toronto") {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric", month: "2-digit", day: "2-digit"
+  }).formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month) - 1,
+    day: Number(parts.day)
+  };
+}
+
+function zonedMidnightIso(year, month, day, timeZone = "America/Toronto") {
+  const targetUtc = Date.UTC(year, month, day, 0, 0, 0);
+  const probe = new Date(targetUtc);
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23"
+  }).formatToParts(probe).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  const representedUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour), Number(parts.minute), Number(parts.second)
+  );
+  return new Date(targetUtc - (representedUtc - targetUtc)).toISOString();
+}
+
+/** Interprète une période d'agenda sans déléguer les dates au modèle de langage. */
+export function detectCalendarQuery(message, now = new Date()) {
+  const text = String(message ?? "");
+  if (!CALENDAR_TERM_PATTERN.test(text)) return null;
+  const localDate = zonedDateParts(now);
+  const start = new Date(Date.UTC(localDate.year, localDate.month, localDate.day));
+  const end = new Date(start);
+  let period = "today";
+  const mutationRequested = /\b(?:rappelle[- ]moi|planifie|ajoute|cr[eé]e)\b/i.test(text);
+  const overdue = REMINDER_TERM_PATTERN.test(text) && /\b(?:en retard|[eé]chu(?:e|es|s)?)\b/i.test(text);
+
+  if (overdue) {
+    start.setUTCFullYear(start.getUTCFullYear() - 1);
+    period = "overdue";
+  } else if (/\bdemain\b/i.test(text)) {
+    start.setUTCDate(start.getUTCDate() + 1);
+    end.setTime(start.getTime());
+    end.setUTCDate(end.getUTCDate() + 1);
+    period = "tomorrow";
+  } else if (/\bsemaine prochaine\b/i.test(text)) {
+    const day = start.getUTCDay() || 7;
+    start.setUTCDate(start.getUTCDate() - day + 8);
+    end.setTime(start.getTime());
+    end.setUTCDate(end.getUTCDate() + 7);
+    period = "next_week";
+  } else if (/\b(?:cette semaine|de la semaine|semaine)\b/i.test(text)) {
+    const day = start.getUTCDay() || 7;
+    start.setUTCDate(start.getUTCDate() - day + 1);
+    end.setTime(start.getTime());
+    end.setUTCDate(end.getUTCDate() + 7);
+    period = "week";
+  } else if (/\b(?:mois|ce mois)\b/i.test(text)) {
+    start.setUTCDate(1);
+    end.setUTCFullYear(start.getUTCFullYear(), start.getUTCMonth() + 1, 1);
+    period = "month";
+  } else {
+    end.setUTCDate(end.getUTCDate() + 1);
+  }
+
+  return {
+    start: zonedMidnightIso(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()),
+    end: overdue
+      ? now.toISOString()
+      : zonedMidnightIso(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()),
+    period,
+    remindersOnly: REMINDER_TERM_PATTERN.test(text),
+    overdue,
+    mutationRequested,
+    clientReference: extractExplicitClientReference(text)
+  };
+}
+
 export class AgentRequestError extends Error {
   constructor(message, statusCode = 400) {
     super(message);
@@ -315,9 +396,14 @@ export function normalizeAgentRequest(body = {}) {
     lastResultCodes: normalizeContextCodes(body.context?.lastResultCodes)
   };
   const portfolio = detectPortfolioQuery(message, contextInput);
+  const calendar = detectCalendarQuery(message);
 
   if (intent === AGENT_INTENTS.CONVERSATION) {
-    if (isMissingDocumentsPortfolioRequest(message, explicitClientReference)) {
+    if (calendar) {
+      intent = calendar.remindersOnly
+        ? AGENT_INTENTS.REMINDERS_QUERY
+        : AGENT_INTENTS.CALENDAR_QUERY;
+    } else if (isMissingDocumentsPortfolioRequest(message, explicitClientReference)) {
       intent = AGENT_INTENTS.CLIENTS_MISSING_DOCUMENTS;
     } else if (portfolio && !explicitClientReference) {
       intent = AGENT_INTENTS.PORTFOLIO_QUERY;
@@ -325,7 +411,7 @@ export function normalizeAgentRequest(body = {}) {
       intent = AGENT_INTENTS.CLIENT_QUERY;
     } else if (DOCUMENT_TERM_PATTERN.test(message) && (!PRODUCT_PATTERN.test(message) || explicitClientReference)) {
       intent = AGENT_INTENTS.CLIENT_DOCUMENTS;
-    } else if (/\b(t[âa]ches?|rappels?|rendez-vous|agenda|rencontres?|planifier)\b|\bsuivis?\b(?!\s+hypoth[eé]caire)/i.test(message)) {
+    } else if (/\b(t[âa]ches?|suivis?)\b(?!\s+hypoth[eé]caire)/i.test(message)) {
       intent = AGENT_INTENTS.CLIENT_TASKS;
     } else if (/\b(afficher|affiche|ouvrir|ouvre|consulter|consulte|résumer|resume|résume)\b.*\bdossier\b/i.test(message)) {
       intent = AGENT_INTENTS.CLIENT_DOSSIER;
@@ -376,6 +462,7 @@ export function normalizeAgentRequest(body = {}) {
       ? (portfolio?.selectionCodes?.length ? "selection" : "portfolio")
       : "single_client",
     portfolio,
+    calendar,
     context: { activeClient, lastResultCodes: contextInput.lastResultCodes },
     interpretationSource,
     confidence,

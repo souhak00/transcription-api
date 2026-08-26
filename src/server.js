@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   AgentRequestError,
+  detectCalendarQuery,
   extractClientCodes,
   extractUniqueClientCode,
   normalizeAgentRequest,
@@ -11,7 +12,13 @@ import {
   requestClientDossier,
   requestPortfolioData
 } from "./agent.js";
-import { buildAgentResponse } from "./contracts.js";
+import { AGENT_INTENTS, buildAgentResponse } from "./contracts.js";
+import {
+  createCalendarEvent,
+  formatCalendarReply,
+  requestCalendarData,
+  updateCalendarEvent
+} from "./calendar.js";
 import { normalizeDossierUpdate, requestDossierUpdate } from "./dossier-write.js";
 import {
   AuthenticationError,
@@ -152,6 +159,10 @@ const server = http.createServer(async (request, response) => {
         agentConfigured: Boolean(process.env.N8N_AGENT_WEBHOOK_URL),
         missingDocumentsConfigured: Boolean(process.env.N8N_MISSING_DOCUMENTS_WEBHOOK_URL),
         portfolioConfigured: Boolean(process.env.N8N_PORTFOLIO_WEBHOOK_URL),
+        calendarConfigured: Boolean(process.env.N8N_CALENDAR_WEBHOOK_URL),
+        calendarWriteConfigured: Boolean(process.env.N8N_CALENDAR_WRITE_WEBHOOK_URL),
+        calendarUpdateConfigured: Boolean(process.env.N8N_CALENDAR_UPDATE_WEBHOOK_URL
+          ?? process.env.N8N_CALENDAR_WRITE_WEBHOOK_URL),
         clientDossierConfigured: Boolean(process.env.N8N_CLIENT_DOSSIER_WEBHOOK_URL),
         dossierWriteConfigured: Boolean(process.env.N8N_DOSSIER_WRITE_WEBHOOK_URL)
       });
@@ -183,6 +194,43 @@ const server = http.createServer(async (request, response) => {
         sort: [{ field: url.searchParams.get("sort") ?? "updated_at", direction: "desc" }]
       }, { representativeId: user.representantId });
       sendJson(response, 200, portfolio);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/calendar") {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const now = new Date();
+      const defaultPeriod = detectCalendarQuery("agenda ce mois", now);
+      const calendar = await requestCalendarData({
+        start: url.searchParams.get("start") ?? defaultPeriod.start,
+        end: url.searchParams.get("end") ?? defaultPeriod.end,
+        type: url.searchParams.get("type") ?? "",
+        status: url.searchParams.get("status") ?? "",
+        remindersOnly: url.searchParams.get("remindersOnly") === "true",
+        clientReference: url.searchParams.get("clientReference") ?? ""
+      }, { representativeId: user.representantId });
+      sendJson(response, 200, calendar);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/calendar/events") {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const event = await createCalendarEvent(await readJson(request), {
+        representativeId: user.representantId,
+        requestId: request.headers["x-idempotency-key"]
+      });
+      sendJson(response, 201, event);
+      return;
+    }
+
+    const calendarEventMatch = url.pathname.match(/^\/api\/calendar\/events\/(EVT-[A-Z0-9]{12})$/i);
+    if (request.method === "PATCH" && calendarEventMatch) {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const event = await updateCalendarEvent(calendarEventMatch[1], await readJson(request), {
+        representativeId: user.representantId,
+        requestId: request.headers["x-idempotency-key"]
+      });
+      sendJson(response, 200, event);
       return;
     }
 
@@ -230,10 +278,24 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/api/agent/messages") {
       const user = await authenticateRequest(request, keycloakConfig);
       const input = normalizeAgentRequest(await readJson(request));
-      const reply = await requestAgentReply({
-        ...input,
-        representativeId: user.representantId
-      });
+      const isCalendar = [
+        AGENT_INTENTS.CALENDAR_QUERY,
+        AGENT_INTENTS.REMINDERS_QUERY
+      ].includes(input.intent);
+      const calendarMutationHelp = isCalendar && input.calendar?.mutationRequested;
+      const calendarData = isCalendar && !calendarMutationHelp
+        ? await requestCalendarData(input.calendar, { representativeId: user.representantId })
+        : null;
+      const reply = calendarMutationHelp
+        ? "Pour créer une rencontre ou un rappel, ouvrez Agenda puis cliquez sur Ajouter. La création conversationnelle avec confirmation sera ajoutée dans une prochaine itération."
+        : isCalendar
+        ? formatCalendarReply(calendarData, {
+            remindersOnly: input.intent === AGENT_INTENTS.REMINDERS_QUERY
+          })
+        : await requestAgentReply({
+            ...input,
+            representativeId: user.representantId
+          });
       const clientReference = input.clientReference
         ?? extractUniqueClientCode(input.message, reply);
       const resultCodes = extractClientCodes(reply);
@@ -242,7 +304,8 @@ const server = http.createServer(async (request, response) => {
         data: {
           requested_fields: input.requestedFields,
           scope: input.scope,
-          result_codes: resultCodes
+          result_codes: resultCodes,
+          ...(calendarData ? { calendar: calendarData } : {})
         }
       }));
       return;

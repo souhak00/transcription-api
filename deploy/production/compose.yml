@@ -161,6 +161,9 @@ services:
       N8N_CLIENT_DOSSIER_WEBHOOK_URL: http://n8n:5678/webhook/crm/dossier-client
       N8N_DOSSIER_WRITE_WEBHOOK_URL: http://n8n:5678/webhook/crm/enregistrer-dossier
       N8N_PORTFOLIO_WEBHOOK_URL: http://n8n:5678/webhook/crm/portefeuille
+      N8N_CALENDAR_WEBHOOK_URL: http://n8n:5678/webhook/crm/agenda
+      N8N_CALENDAR_WRITE_WEBHOOK_URL: http://n8n:5678/webhook/crm/agenda/evenements
+      N8N_CALENDAR_UPDATE_WEBHOOK_URL: http://n8n:5678/webhook/crm/agenda/evenements/modifier
       AGENT_TIMEOUT_MS: "180000"
       KEYCLOAK_ISSUER: https://${AUTH_DOMAIN}/realms/crm-local
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/crm-local/protocol/openid-connect/certs

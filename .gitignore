@@ -4,6 +4,7 @@ web/dist/
 .env.production
 outputs/
 .runtime/
+runtime/
 deploy/production/runtime/
 *.log
 

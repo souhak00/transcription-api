@@ -50,15 +50,15 @@ Keycloak local (OpenID Connect + PKCE)
 
 ↓
 
-API REST Node.js / Express
+API métier Node.js / Express
 
 ↓
 
-n8n
+Services CRM et moteur de checklist
 
 ↓
 
-Services PostgreSQL
+PostgreSQL + RLS et stockage objet privé
 
 ↓
 
@@ -83,6 +83,13 @@ Utilisateur
 Outils CRM initiaux de l’agent : rechercher un client, obtenir ses documents
 et obtenir ses tâches. Le navigateur, l’agent, Ollama et n8n ne lisent jamais
 directement les tables CRM.
+
+Extension documentaire de référence : l’API reçoit et autorise les demandes,
+un moteur déterministe produit la checklist, un stockage objet privé conserve
+les fichiers et un worker réalise antivirus, extraction PDF et OCR. Ollama est
+facultatif après OCR; il ne détermine pas les obligations et ne valide aucune
+pièce. n8n reçoit seulement des événements autorisés pour les rappels et les
+intégrations. Voir `docs/gestion-documentaire-ocr.md`.
 
 ---
 
@@ -113,6 +120,9 @@ directement les tables CRM.
 ## Infrastructure
 
 - Docker Desktop
+- VPS Hostinger en production
+- Caddy comme terminaison TLS
+- stockage objet S3 cible; MinIO réservé au local ou au MVP
 
 ---
 
@@ -145,6 +155,21 @@ Aucune requête SQL directe dans les workflows.
 Les agents IA ne lisent jamais directement les tables.
 
 Ils utilisent exclusivement les services PostgreSQL.
+
+---
+
+## ADR-005
+
+Keycloak porte l’identité, les groupes et les rôles. L’API établit le contexte
+représentant et PostgreSQL applique la RLS.
+
+---
+
+## ADR-006
+
+La gestion documentaire est un module de l’API Node existante avec worker
+asynchrone et stockage objet. OCRmyPDF/Tesseract assurent l’OCR; Ollama est
+facultatif et toute extraction exige une validation humaine.
 
 ---
 
@@ -239,7 +264,8 @@ Workflow importé dans n8n :
 - identifiant : `CrmEtatDossierV1`
 - état n8n : importé, non publié et exécutable manuellement dans l’éditeur
 - contexte du test : `app.role = representant` et `representant_id` local;
-  l’architecture cible remplacera cette valeur par l’identité issue du JWT
+  ce point décrit le test historique; les parcours Web actuels utilisent
+  l’identité issue du JWT validé par l’API
 - exécution complète réussie le 2026-07-30
 - PostgreSQL et Ollama validés de bout en bout
 
@@ -348,15 +374,18 @@ React; aucune référence au client actif ni aucun UUID dans la réponse
   exigent une réponse reproductible. Les questions libres restent
   interprétées par `mistral-nemo`.
 
-- Gestion documentaire
+- Gestion documentaire : architecture définie; catalogue, checklist, stockage,
+  OCR et validation restent à implanter par phases
 
 - Génération automatique des tâches
 
-- Tableau de bord
+- Tableau de bord : portefeuille, filtres, tris et pagination implantés; ajouter
+  la progression documentaire
 
-- Authentification
+- Authentification : Keycloak et isolation par représentant implantés; ajouter
+  les permissions documentaires client/validateur
 
-- API REST complète
+- API REST documentaire et file persistante
 
 - Désactivation du webhook Web après la démonstration ou protection par JWT
   avant toute exposition hors de l’environnement local
@@ -454,7 +483,7 @@ En cours
 
 Interface Web
 
-À faire
+MVP implanté; enrichissement documentaire à faire
 
 ---
 
@@ -462,7 +491,16 @@ Interface Web
 
 Production
 
-À faire
+Production Hostinger implantée; observabilité et stockage documentaire à faire
+
+---
+
+## Phase 7
+
+Gestion documentaire : catalogue, règles, checklist, stockage objet, antivirus,
+OCR, validation humaine et audit
+
+Architecture acceptée; implantation à faire
 
 ---
 

@@ -10,7 +10,9 @@ export const AGENT_INTENTS = Object.freeze({
   CLIENT_DOSSIER: "dossier_client",
   CLIENT_QUERY: "consultation_client",
   CLIENT_DOCUMENTS: "documents_client",
-  CLIENT_TASKS: "taches_client"
+  CLIENT_TASKS: "taches_client",
+  CALENDAR_QUERY: "consultation_agenda",
+  REMINDERS_QUERY: "consultation_rappels"
 });
 
 export const ALLOWED_AGENT_INTENTS = new Set(Object.values(AGENT_INTENTS));

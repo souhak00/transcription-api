@@ -100,7 +100,7 @@ try {
         KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD = $adminPassword
     }
 
-    docker compose up -d keycloak
+    docker compose -p transcription-api up -d keycloak
     if ($LASTEXITCODE -ne 0) { throw "Le conteneur Keycloak n’a pas démarré." }
 
     $discoveryUrl = "http://localhost:8080/realms/crm-local/.well-known/openid-configuration"

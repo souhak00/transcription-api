@@ -1,5 +1,13 @@
 # Workflow n8n : transcription API + synthese Ollama
 
+> **Frontière documentaire :** ce workflow traite des médias et extrait des
+> suggestions CRM. Il n’est pas le futur service de collecte des pièces
+> hypothécaires. La checklist, les autorisations, les fichiers, l’OCR et la
+> validation sont portés par l’API documentaire décrite dans
+> [`docs/gestion-documentaire-ocr.md`](./docs/gestion-documentaire-ocr.md).
+> n8n reçoit des événements pour les rappels; Ollama ne réalise pas l’OCR et ne
+> décide pas qu’un document est conforme.
+
 Ce guide decrit un workflow n8n qui:
 
 1. cherche les fichiers audio/video dans un dossier Google Drive;
