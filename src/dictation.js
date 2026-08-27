@@ -91,7 +91,7 @@ function closestClientName(spokenName, clientNames = []) {
 
 function correctClientReference(transcript, clientNames = []) {
   const reference = transcript.match(
-    /\b(dossier|client|fichier)\s+(?:(?:de|du|pour)\s+|d['’])([\p{L}'’ -]{4,})\s*[?.!]*$/iu
+    /\b(dossier|client|fichier)\s+(?:(?:de|du|pour|d)\s+|d['’])([\p{L}'’ -]{4,})\s*[?.!]*$/iu
   );
   if (!reference) return transcript;
   const correctedName = closestClientName(reference[2], clientNames);

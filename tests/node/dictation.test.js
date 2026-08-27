@@ -86,6 +86,10 @@ test("un nom dicté est rapproché uniquement d’un client suffisamment similai
     "affiche-moi dossier de Olivier Bergeron"
   );
   assert.equal(
+    normalizeCrmDictationTranscript("affiche mode dossier d olivier berges", { clientNames }),
+    "affiche-moi dossier de Olivier Bergeron"
+  );
+  assert.equal(
     normalizeCrmDictationTranscript("affiche-moi le dossier de Benoît Trembler", { clientNames }),
     "affiche-moi le dossier de Benoît Tremblay"
   );
