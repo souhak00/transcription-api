@@ -225,9 +225,11 @@ export function detectClientQueryFields(message) {
 }
 
 function isMissingDocumentsPortfolioRequest(message, clientReference = null) {
+  const requestsGlobalList = PORTFOLIO_TERM_PATTERN.test(message)
+    || (PORTFOLIO_LIST_PATTERN.test(message) && PORTFOLIO_ACTION_PATTERN.test(message));
   return DOCUMENT_TERM_PATTERN.test(message)
     && MISSING_TERM_PATTERN.test(message)
-    && PORTFOLIO_TERM_PATTERN.test(message)
+    && requestsGlobalList
     && !clientReference;
 }
 

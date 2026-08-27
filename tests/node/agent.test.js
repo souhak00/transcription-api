@@ -214,6 +214,24 @@ test("normalizeAgentRequest distingue le portefeuille des documents d’un clien
   assert.equal(client.intent, "documents_client");
 });
 
+test("les formulations vocales avec dossiers ciblent les documents manquants", () => {
+  for (const message of [
+    "Affiche-moi les dossiers dont les documents sont manquants",
+    "affiche-moi les dossiers dans les documents sont manquants"
+  ]) {
+    const input = normalizeAgentRequest({ message });
+    assert.equal(input.intent, "clients_documents_manquants", message);
+    assert.equal(input.clientReference, null, message);
+    assert.equal(input.clarificationRequired, false, message);
+  }
+
+  const individual = normalizeAgentRequest({
+    message: "Affiche-moi les documents manquants du dossier Tremblay"
+  });
+  assert.equal(individual.intent, "documents_client");
+  assert.equal(individual.clientReference, "Tremblay");
+});
+
 test("normalizeAgentRequest résout une référence anaphorique avec le contexte actif", () => {
   const input = normalizeAgentRequest({
     message: "Et ses papiers manquants?",
