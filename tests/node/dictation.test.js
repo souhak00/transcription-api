@@ -77,6 +77,18 @@ test("les déformations vocales observées sont corrigées dans les commandes CR
     normalizeCrmDictationTranscript("a six mois le dossier d'alice beaulieu"),
     "affiche-moi le dossier d'alice beaulieu"
   );
+  assert.equal(
+    normalizeCrmDictationTranscript("un fils paul et cinq derniers payant"),
+    "affiche-moi cinq derniers clients"
+  );
+  assert.equal(
+    normalizeCrmDictationTranscript("six mois le dossier du dernier client"),
+    "affiche-moi le dossier du dernier client"
+  );
+  assert.equal(
+    normalizeCrmDictationTranscript("bon moyen de affiche mois du dossier son analyse"),
+    "affiche-moi les dossiers en analyse"
+  );
 });
 
 test("un nom dicté est rapproché uniquement d’un client suffisamment similaire", () => {
@@ -92,6 +104,16 @@ test("un nom dicté est rapproché uniquement d’un client suffisamment similai
   assert.equal(
     normalizeCrmDictationTranscript("affiche-moi le dossier de Benoît Trembler", { clientNames }),
     "affiche-moi le dossier de Benoît Tremblay"
+  );
+  assert.equal(
+    normalizeCrmDictationTranscript("sa finition ou un le dossier de benoît trente", { clientNames }),
+    "affiche-moi le dossier de Benoît Tremblay"
+  );
+  assert.equal(
+    normalizeCrmDictationTranscript("il inflige moi les documents manquants dans le dossier de carré auriez", {
+      clientNames: [...clientNames, "Karine Pelletier"]
+    }),
+    "affiche-moi les documents manquants dans le dossier de Karine Pelletier"
   );
   assert.equal(
     normalizeCrmDictationTranscript("affiche-moi le dossier de Paul Martin", { clientNames }),

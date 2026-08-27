@@ -147,4 +147,11 @@ test("les réponses agenda sont factuelles et lisibles", () => {
   }] });
   assert.match(reply, /Alice Roy/);
   assert.match(reply, /Préqualification/);
+
+  const nextReply = formatCalendarReply({ events: [
+    { debut: "2026-08-28T14:00:00Z", titre: "Prochaine rencontre" },
+    { debut: "2026-08-29T14:00:00Z", titre: "Rencontre suivante" }
+  ] }, { limit: 1 });
+  assert.match(nextReply, /Prochaine rencontre/);
+  assert.doesNotMatch(nextReply, /Rencontre suivante/);
 });

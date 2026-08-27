@@ -73,20 +73,75 @@ function levenshteinDistance(left, right) {
   return previous[right.length];
 }
 
+function similarity(left, right) {
+  if (!left || !right) return 0;
+  return 1 - (levenshteinDistance(left, right) / Math.max(left.length, right.length));
+}
+
+function frenchPhoneticSkeleton(value = "") {
+  const folded = foldFrenchText(value)
+    .replace(/ph/g, "f")
+    .replace(/(?:eau|au)/g, "o")
+    .replace(/(?:ai|ay|ei|er|ez)/g, "e")
+    .replace(/(?:qu|ck|c)/g, "k")
+    .replace(/gn/g, "n")
+    .replace(/ch/g, "s")
+    .replace(/g(?=[eiy])/g, "j")
+    .replace(/h/g, "")
+    .replace(/[^a-z]/g, "");
+  if (!folded) return "";
+  return `${folded[0]}${folded.slice(1).replace(/[aeiouy]/g, "")}`
+    .replace(/(.)\1+/g, "$1");
+}
+
+function nameSimilarity(spokenName, candidateName) {
+  const spoken = foldFrenchText(spokenName);
+  const candidate = foldFrenchText(candidateName);
+  const spokenTokens = spoken.split(/\s+/).filter(Boolean);
+  const candidateTokens = candidate.split(/\s+/).filter(Boolean);
+  const firstSpoken = spokenTokens[0] ?? "";
+  const firstCandidate = candidateTokens[0] ?? "";
+  const lastSpoken = spokenTokens.at(-1) ?? "";
+  const lastCandidate = candidateTokens.at(-1) ?? "";
+  const firstSkeleton = frenchPhoneticSkeleton(firstSpoken);
+  const candidateSkeleton = frenchPhoneticSkeleton(firstCandidate);
+  const sharedPhoneticStart = firstSkeleton.length >= 2
+    && candidateSkeleton.length >= 2
+    && firstSkeleton.slice(0, 2) === candidateSkeleton.slice(0, 2);
+  const firstScore = Math.max(
+    similarity(firstSpoken, firstCandidate),
+    similarity(firstSkeleton, candidateSkeleton),
+    sharedPhoneticStart ? 0.82 : 0
+  );
+  const lastScore = Math.max(
+    similarity(lastSpoken, lastCandidate),
+    similarity(frenchPhoneticSkeleton(lastSpoken), frenchPhoneticSkeleton(lastCandidate))
+  );
+  return Math.max(similarity(spoken, candidate), firstScore * 0.8 + lastScore * 0.2);
+}
+
 function closestClientName(spokenName, clientNames = []) {
   const foldedSpokenName = foldFrenchText(spokenName);
   if (foldedSpokenName.length < 4) return null;
 
   let best = null;
+  let secondBestScore = 0;
   for (const rawName of clientNames) {
     const name = String(rawName ?? "").trim();
     const foldedName = foldFrenchText(name);
     if (!name || !foldedName) continue;
-    const longestLength = Math.max(foldedSpokenName.length, foldedName.length);
-    const similarity = 1 - (levenshteinDistance(foldedSpokenName, foldedName) / longestLength);
-    if (!best || similarity > best.similarity) best = { name, similarity };
+    const score = nameSimilarity(foldedSpokenName, foldedName);
+    if (!best || score > best.score) {
+      secondBestScore = best?.score ?? secondBestScore;
+      best = { name, score };
+    } else if (score > secondBestScore) {
+      secondBestScore = score;
+    }
   }
-  return best?.similarity >= 0.72 ? best.name : null;
+  if (!best) return null;
+  const confidentExactMatch = best.score >= 0.9;
+  const confidentPhoneticMatch = best.score >= 0.64 && best.score - secondBestScore >= 0.08;
+  return confidentExactMatch || confidentPhoneticMatch ? best.name : null;
 }
 
 function correctClientReference(transcript, clientNames = []) {
@@ -103,12 +158,17 @@ export function normalizeCrmDictationTranscript(value = "", options = {}) {
   let transcript = String(value).replace(/\s+/g, " ").trim();
 
   transcript = transcript
+    .replace(/\b(?:cinq|5)\s+derniers?\s+payants?\b/i, "cinq derniers clients")
     .replace(
-      /^(?:[aà]|un)\s+six\s+mois?\s+(?=(?:(?:le|la|les|un|une)\s+)?(?:dossiers?|clients?|fichiers?|prochains?\s+rendez-vous|rendez-vous|agenda|documents?|t[âa]ches?))/i,
+      /^(?:(?:[aà]|un)?\s*six\s+mois?|un\s+fils\s+paul\s+et|sa\s+finition\s+ou\s+un|il\s+inflige\s+moi)\s+(?=(?:(?:le|la|les|ma|mes|un|une|cinq)\s+)?(?:dossiers?|clients?|fichiers?|prochains?\s+(?:rendez-vous|rencontre)|rendez-vous|rencontre|agenda|documents?|t[âa]ches?|derniers?\s+clients?))/i,
       "affiche-moi "
     )
     .replace(
       /^affiche\s+mo(?:de|i|is)\s+(?=(?:(?:le|la|les|un|une)\s+)?(?:dossiers?|clients?|fichiers?|prochains?\s+rendez-vous|rendez-vous|agenda))/i,
+      "affiche-moi "
+    )
+    .replace(
+      /^.*?\baffiche\s+mois?\s+(?=(?:du|le|la|les|un|une)\s+(?:dossiers?|clients?|fichiers?))/i,
       "affiche-moi "
     );
 
@@ -123,6 +183,7 @@ export function normalizeCrmDictationTranscript(value = "", options = {}) {
     )
     .replace(/^ainsi\s+c['’]est\b/i, "affiche")
     .replace(/\bles\s+dossiers?\s+(?:et|est)\s+de\b/i, "le dossier de")
+    .replace(/\b(?:du|le)\s+dossier\s+son\s+analyse\b/i, "les dossiers en analyse")
     .replace(/\bdossiers?\s+en\s+(?:l['’]?\s*[ée]glise|bas)\b/i, "dossiers en analyse")
     .replace(/\b(?:beno[iî]t|benolt)\s+trembler\b/gi, "Benoît Tremblay")
     .replace(/\bbeno[iî]t\s+tremblay\b/gi, "Benoît Tremblay");

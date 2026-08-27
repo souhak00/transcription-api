@@ -210,7 +210,10 @@ function formatCalendarDate(value) {
 }
 
 export function formatCalendarReply(data, options = {}) {
-  const events = Array.isArray(data?.events) ? data.events : [];
+  const allEvents = Array.isArray(data?.events) ? data.events : [];
+  const events = Number(options.limit) > 0
+    ? allEvents.slice(0, Number(options.limit))
+    : allEvents;
   const label = options.remindersOnly ? "rappel" : "événement";
   if (!events.length) {
     return `Aucun ${label} trouvé pour cette période.`;

@@ -52,6 +52,11 @@ test("les demandes d’agenda et de rappels sont interprétées sans LLM", () =>
   const mutation = normalizeAgentRequest({ message: "Rappelle-moi d’appeler le client demain" });
   assert.equal(mutation.intent, "consultation_rappels");
   assert.equal(mutation.calendar.mutationRequested, true);
+
+  const nextMeeting = detectCalendarQuery("Affiche-moi ma prochaine rencontre", now);
+  assert.equal(nextMeeting.period, "upcoming");
+  assert.equal(nextMeeting.start, now.toISOString());
+  assert.ok(new Date(nextMeeting.end) > now);
 });
 
 test("buildCalendarDraft prépare un rendez-vous à confirmer", () => {
@@ -230,6 +235,16 @@ test("les formulations vocales avec dossiers ciblent les documents manquants", (
   });
   assert.equal(individual.intent, "documents_client");
   assert.equal(individual.clientReference, "Tremblay");
+});
+
+test("le dossier du dernier client devient une liste limitée au plus récent", () => {
+  const input = normalizeAgentRequest({
+    message: "affiche-moi le dossier du dernier client"
+  });
+  assert.equal(input.intent, "consultation_portefeuille");
+  assert.equal(input.clientReference, null);
+  assert.equal(input.portfolio.limit, 1);
+  assert.deepEqual(input.portfolio.sort, [{ field: "updated_at", direction: "desc" }]);
 });
 
 test("normalizeAgentRequest résout une référence anaphorique avec le contexte actif", () => {

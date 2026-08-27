@@ -343,7 +343,8 @@ const server = http.createServer(async (request, response) => {
         ? "J’ai préparé le rendez-vous dans l’Agenda. Vérifiez les renseignements, puis confirmez la création."
         : isCalendar
         ? formatCalendarReply(calendarData, {
-            remindersOnly: input.intent === AGENT_INTENTS.REMINDERS_QUERY
+            remindersOnly: input.intent === AGENT_INTENTS.REMINDERS_QUERY,
+            limit: input.calendar?.period === "upcoming" ? 1 : null
           })
         : await requestAgentReply({
             ...input,

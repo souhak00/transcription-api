@@ -267,7 +267,10 @@ export function detectPortfolioQuery(message, context = {}) {
           : /^documents?/i.test(statusText)
             ? "Documents requis"
             : "En analyse";
-  const limit = Number(text.match(/\b(?:les?\s+)?(\d{1,3})\s+(?:derniers?|clients?|dossiers?)\b/i)?.[1] ?? 20);
+  const asksForLatestClient = /\b(?:le\s+)?dernier\s+client\b/i.test(text);
+  const limit = asksForLatestClient
+    ? 1
+    : Number(text.match(/\b(?:les?\s+)?(\d{1,3})\s+(?:derniers?|clients?|dossiers?)\b/i)?.[1] ?? 20);
 
   return {
     filters: {
@@ -322,10 +325,16 @@ export function detectCalendarQuery(message, now = new Date()) {
   const start = new Date(Date.UTC(localDate.year, localDate.month, localDate.day));
   const end = new Date(start);
   let period = "today";
+  let startOverride = null;
   const mutationRequested = /\b(?:rappelle[- ]moi|planifie|ajoute|cr[eé]e)\b/i.test(text);
   const overdue = REMINDER_TERM_PATTERN.test(text) && /\b(?:en retard|[eé]chu(?:e|es|s)?)\b/i.test(text);
 
-  if (overdue) {
+  if (/\b(?:prochain(?:e)?\s+(?:rendez-vous|rencontre)|ma\s+prochaine\s+rencontre)\b/i.test(text)) {
+    startOverride = now.toISOString();
+    end.setTime(now.getTime());
+    end.setUTCFullYear(end.getUTCFullYear() + 1);
+    period = "upcoming";
+  } else if (overdue) {
     start.setUTCFullYear(start.getUTCFullYear() - 1);
     period = "overdue";
   } else if (/\bdemain\b/i.test(text)) {
@@ -354,7 +363,8 @@ export function detectCalendarQuery(message, now = new Date()) {
   }
 
   return {
-    start: zonedMidnightIso(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()),
+    start: startOverride
+      ?? zonedMidnightIso(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()),
     end: overdue
       ? now.toISOString()
       : zonedMidnightIso(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()),
