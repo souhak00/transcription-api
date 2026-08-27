@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -72,9 +74,14 @@ async function adminRequest(config, resource, options = {}) {
   );
   const payload = await parseResponse(response);
   if (!response.ok) {
+    const conflict = response.status === 409;
     throw new KeycloakAdminError(
-      response.status === 404 ? "Le compte Keycloak est introuvable." : "Keycloak a refusé l’opération administrative.",
-      response.status === 404 ? 404 : 502
+      response.status === 404
+        ? "Le compte Keycloak est introuvable."
+        : conflict
+          ? "Un compte utilise déjà ce courriel."
+          : "Keycloak a refusé l’opération administrative.",
+      response.status === 404 ? 404 : conflict ? 409 : 502
     );
   }
   return { payload, response };
@@ -85,9 +92,17 @@ function normalizeAccount(user = {}) {
     id: String(user.id ?? ""),
     email: String(user.email ?? user.username ?? ""),
     name: [user.firstName, user.lastName].filter(Boolean).join(" ") || String(user.username ?? ""),
+    representantId: String(user.attributes?.representant_id?.[0] ?? ""),
     enabled: Boolean(user.enabled),
+    createdAt: Number.isFinite(Number(user.createdTimestamp))
+      ? new Date(Number(user.createdTimestamp)).toISOString()
+      : null,
     requiredActions: Array.isArray(user.requiredActions) ? user.requiredActions : []
   };
+}
+
+export function generateTemporaryPassword() {
+  return `Crm!${randomBytes(24).toString("base64url")}aA7`;
 }
 
 export async function listRepresentativeAccounts(config, options = {}) {
@@ -124,6 +139,85 @@ export async function resetRepresentativePassword(config, userId, password, opti
     method: "PUT",
     body: { type: "password", value: String(password), temporary: true }
   });
+}
+
+export async function revokeRepresentativeSessions(config, userId, options = {}) {
+  if (!UUID_PATTERN.test(String(userId))) {
+    throw new KeycloakAdminError("Identifiant de compte Keycloak invalide.", 400);
+  }
+  await adminRequest(config, `/users/${encodeURIComponent(userId)}/logout`, {
+    ...options,
+    method: "POST"
+  });
+}
+
+export async function createRepresentativeAccount(config, input, options = {}) {
+  const normalized = normalizeRepresentativeAccountInput(input);
+  const password = input.password
+    ? String(input.password)
+    : generateTemporaryPassword();
+  if (password.length < 12) {
+    throw new KeycloakAdminError("Le mot de passe temporaire doit contenir au moins 12 caractères.", 400);
+  }
+
+  const existing = await adminRequest(
+    config,
+    `/users?username=${encodeURIComponent(normalized.email)}&exact=true`,
+    options
+  );
+  if (Array.isArray(existing.payload) && existing.payload.length) {
+    throw new KeycloakAdminError("Un compte utilise déjà ce courriel.", 409);
+  }
+
+  const nameParts = normalized.name.split(/\s+/).filter(Boolean);
+  const firstName = nameParts.shift() ?? normalized.name;
+  const lastName = nameParts.join(" ");
+  const created = await adminRequest(config, "/users", {
+    ...options,
+    method: "POST",
+    body: {
+      username: normalized.email,
+      email: normalized.email,
+      firstName,
+      lastName,
+      enabled: true,
+      emailVerified: true,
+      attributes: { representant_id: [normalized.representantId] },
+      requiredActions: ["UPDATE_PASSWORD"]
+    }
+  });
+  const location = String(created.response.headers?.get?.("location") ?? "");
+  const userId = location.split("/").filter(Boolean).at(-1) ?? "";
+  if (!UUID_PATTERN.test(userId)) {
+    throw new KeycloakAdminError("Keycloak n’a pas confirmé la création du compte.", 502);
+  }
+
+  const role = await adminRequest(
+    config,
+    `/roles/${encodeURIComponent("representant")}`,
+    options
+  );
+  await adminRequest(config, `/users/${encodeURIComponent(userId)}/role-mappings/realm`, {
+    ...options,
+    method: "POST",
+    body: [role.payload]
+  });
+  await resetRepresentativePassword(config, userId, password, options);
+
+  return {
+    account: normalizeAccount({
+      id: userId,
+      username: normalized.email,
+      email: normalized.email,
+      firstName,
+      lastName,
+      enabled: true,
+      createdTimestamp: Date.now(),
+      attributes: { representant_id: [normalized.representantId] },
+      requiredActions: ["UPDATE_PASSWORD"]
+    }),
+    temporaryPassword: password
+  };
 }
 
 export function normalizeRepresentativeAccountInput(input = {}) {

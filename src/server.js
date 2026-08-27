@@ -28,10 +28,12 @@ import {
   loadKeycloakConfig
 } from "./keycloak.js";
 import {
+  createRepresentativeAccount,
   KeycloakAdminError,
   listRepresentativeAccounts,
   loadKeycloakAdminConfig,
   resetRepresentativePassword,
+  revokeRepresentativeSessions,
   setRepresentativeAccountEnabled
 } from "./keycloak-admin.js";
 import { loadEnvFile } from "./env.js";
@@ -242,6 +244,16 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/admin/representatives") {
+      await requireAdministrator(request);
+      const result = await createRepresentativeAccount(
+        keycloakAdminConfig,
+        await readJson(request)
+      );
+      sendJson(response, 201, result);
+      return;
+    }
+
     const adminPasswordMatch = url.pathname.match(
       /^\/api\/admin\/representatives\/([0-9a-f-]+)\/password$/i
     );
@@ -254,6 +266,16 @@ const server = http.createServer(async (request, response) => {
         input.password
       );
       sendJson(response, 200, { status: "password_reset_required" });
+      return;
+    }
+
+    const adminLogoutMatch = url.pathname.match(
+      /^\/api\/admin\/representatives\/([0-9a-f-]+)\/sessions$/i
+    );
+    if (request.method === "DELETE" && adminLogoutMatch) {
+      await requireAdministrator(request);
+      await revokeRepresentativeSessions(keycloakAdminConfig, adminLogoutMatch[1]);
+      sendJson(response, 200, { status: "sessions_revoked" });
       return;
     }
 

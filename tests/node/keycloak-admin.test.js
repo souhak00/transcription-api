@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createRepresentativeAccount,
+  generateTemporaryPassword,
   KeycloakAdminError,
   listRepresentativeAccounts,
   loadKeycloakAdminConfig,
   normalizeRepresentativeAccountInput,
   resetRepresentativePassword,
+  revokeRepresentativeSessions,
   setRepresentativeAccountEnabled
 } from "../../src/keycloak-admin.js";
 
@@ -71,7 +74,9 @@ test("listRepresentativeAccounts minimise les données retournées", async () =>
     id: userId,
     email: "representant@example.test",
     name: "Représentant MVP",
+    representantId,
     enabled: true,
+    createdAt: null,
     requiredActions: ["UPDATE_PASSWORD"]
   }]);
 });
@@ -86,8 +91,50 @@ test("les mutations de compte restent temporaires et contrôlées", async () => 
   await resetRepresentativePassword(config, userId, "Mot-de-passe-temporaire-2026", {
     fetchImplementation
   });
+  await revokeRepresentativeSessions(config, userId, { fetchImplementation });
   assert.deepEqual(JSON.parse(calls[0].options.body), { enabled: false });
   assert.equal(JSON.parse(calls[1].options.body).temporary, true);
+  assert.match(calls[2].url, /\/logout$/);
+});
+
+test("createRepresentativeAccount crée, rattache et sécurise le compte", async () => {
+  const calls = [];
+  const fetchImplementation = createFetch(async (url, options) => {
+    calls.push({ url, options });
+    if (url.includes("/users?username=")) return response(200, []);
+    if (url.endsWith("/users")) {
+      return response(201, undefined, { location: `http://keycloak/users/${userId}` });
+    }
+    if (url.endsWith("/roles/representant")) {
+      return response(200, { id: "role-id", name: "representant" });
+    }
+    return response(204);
+  });
+
+  const created = await createRepresentativeAccount(config, {
+    email: "nouvelle@example.test",
+    name: "Marie Test",
+    representantId,
+    password: "Mot-de-passe-temporaire-2026"
+  }, { fetchImplementation });
+
+  assert.equal(created.account.email, "nouvelle@example.test");
+  assert.equal(created.account.representantId, representantId);
+  assert.equal(created.temporaryPassword, "Mot-de-passe-temporaire-2026");
+  const createBody = JSON.parse(calls[1].options.body);
+  assert.deepEqual(createBody.attributes.representant_id, [representantId]);
+  assert.deepEqual(createBody.requiredActions, ["UPDATE_PASSWORD"]);
+  assert.deepEqual(JSON.parse(calls[3].options.body)[0], {
+    id: "role-id",
+    name: "representant"
+  });
+  assert.equal(JSON.parse(calls[4].options.body).temporary, true);
+});
+
+test("le mot de passe généré respecte la longueur minimale", () => {
+  const password = generateTemporaryPassword();
+  assert.ok(password.length >= 12);
+  assert.match(password, /^Crm!/);
 });
 
 test("normalizeRepresentativeAccountInput valide le rattachement métier", () => {
