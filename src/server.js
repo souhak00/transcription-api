@@ -22,6 +22,11 @@ import {
 } from "./calendar.js";
 import { normalizeDossierUpdate, requestDossierUpdate } from "./dossier-write.js";
 import {
+  createDictationService,
+  DictationError,
+  loadDictationConfig
+} from "./dictation.js";
+import {
   AuthenticationError,
   authenticateIdentity,
   authenticateRequest,
@@ -49,6 +54,8 @@ const HOST = process.env.HOST || "127.0.0.1";
 const WEB_DIST_DIR = path.resolve(process.env.WEB_DIST_DIR || "web/dist");
 const keycloakConfig = loadKeycloakConfig();
 const keycloakAdminConfig = loadKeycloakAdminConfig();
+const dictationConfig = loadDictationConfig();
+const transcribeDictation = createDictationService({ config: dictationConfig });
 const keycloakBrowserConfig = {
   url: String(process.env.KEYCLOAK_PUBLIC_URL ?? "http://localhost:8080").replace(/\/+$/, ""),
   realm: String(process.env.KEYCLOAK_REALM ?? "crm-local"),
@@ -82,6 +89,7 @@ function securityHeaders(contentType) {
       ? "no-store"
       : "public, max-age=3600",
     "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ${identityOrigin}; font-src 'self'; base-uri 'none'; frame-ancestors 'none'`,
+    "permissions-policy": "microphone=(self), camera=()",
     "referrer-policy": "no-referrer",
     "x-content-type-options": "nosniff",
     "x-frame-options": "DENY"
@@ -166,6 +174,7 @@ const server = http.createServer(async (request, response) => {
         calendarWriteConfigured: Boolean(process.env.N8N_CALENDAR_WRITE_WEBHOOK_URL),
         calendarUpdateConfigured: Boolean(process.env.N8N_CALENDAR_UPDATE_WEBHOOK_URL
           ?? process.env.N8N_CALENDAR_WRITE_WEBHOOK_URL),
+        dictationConfigured: Boolean(dictationConfig.workerUrl && dictationConfig.workerToken),
         clientDossierConfigured: Boolean(process.env.N8N_CLIENT_DOSSIER_WEBHOOK_URL),
         dossierWriteConfigured: Boolean(process.env.N8N_DOSSIER_WRITE_WEBHOOK_URL)
       });
@@ -336,6 +345,26 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/agent/dictation") {
+      await authenticateRequest(request, keycloakConfig);
+      const declaredLength = Number(request.headers["content-length"] || 0);
+      if (declaredLength > dictationConfig.maxBytes) {
+        throw new DictationError("L’enregistrement audio dépasse la limite permise.", 413);
+      }
+      let audio;
+      try {
+        audio = await readRequestBuffer(request, {
+          maxBytes: dictationConfig.maxBytes,
+          errorMessage: "L’enregistrement audio dépasse la limite permise."
+        });
+      } catch {
+        throw new DictationError("L’enregistrement audio dépasse la limite permise.", 413);
+      }
+      const transcript = await transcribeDictation(audio, request.headers["content-type"]);
+      sendJson(response, 200, { transcript });
+      return;
+    }
+
     // Vue structurée d’un dossier: le navigateur fournit un code métier ou un nom.
     if (request.method === "PUT" && url.pathname.startsWith("/api/clients/")
         && url.pathname.endsWith("/dossier")) {
@@ -436,6 +465,7 @@ const server = http.createServer(async (request, response) => {
     const status = error instanceof AgentRequestError
       || error instanceof AuthenticationError
       || error instanceof KeycloakAdminError
+      || error instanceof DictationError
       ? error.statusCode
       : 500;
     // Les erreurs de l'orchestrateur sont volontairement nettoyees avant retour.

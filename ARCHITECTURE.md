@@ -1,6 +1,6 @@
 # Architecture de la plateforme IA hypothécaire
 
-**Dernière mise à jour :** 2026-08-25
+**Dernière mise à jour :** 2026-08-26
 
 **Statut :** architecture de référence du MVP
 
@@ -14,6 +14,10 @@ Ce document distingue volontairement :
 
 Les sections placées avant l’annexe sont autoritatives. L’annexe conserve les
 détails utiles du pipeline historique de transcription.
+
+Les vues C4 navigables, dynamiques et de déploiement sont regroupées dans
+[`docs/architecture/c4/README.md`](./docs/architecture/c4/README.md); leur source
+Structurizr est maintenue dans le même dossier.
 
 ## Principes d’architecture validés
 

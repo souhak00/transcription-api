@@ -176,6 +176,13 @@ h1, h2, p { margin-top: 0; }
 .composer:focus-within { border-color: #7ba19c; box-shadow: 0 0 0 3px rgba(68,126,120,.1); }
 .composer textarea { width: 100%; min-height: 40px; max-height: 120px; padding: 3px 0; resize: none; border: 0; outline: 0; color: var(--ink); background: transparent; font-size: 12px; line-height: 1.5; }
 .composer textarea::placeholder { color: #9ba4a2; }
+.dictation-button { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 11px; background: #f5f3ed; color: var(--forest); cursor: pointer; transition: .2s; }
+.dictation-button:hover:not(:disabled) { border-color: #7ba19c; background: #edf3f0; }
+.dictation-button.is-recording { border-color: #c95d45; background: #fbe7df; color: #a94331; animation: dictation-pulse 1.2s ease-in-out infinite alternate; }
+.dictation-button:disabled { opacity: .4; cursor: default; }
+.dictation-status { margin: 7px 0 0; color: var(--muted); font-size: 9px; text-align: center; }
+.dictation-status.recording { color: #a94331; }
+@keyframes dictation-pulse { to { box-shadow: 0 0 0 4px rgba(201,93,69,.12); } }
 .send-button { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; border: 0; border-radius: 11px; background: var(--orange); color: white; cursor: pointer; transition: .2s; }
 .send-button:hover:not(:disabled) { background: #c85d31; transform: translateY(-1px); }
 .send-button:disabled { opacity: .35; cursor: default; }

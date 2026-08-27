@@ -76,7 +76,7 @@ Toutes les commandes Compose doivent inclure le fichier d’environnement :
 
 ```bash
 docker compose --env-file .env.production -f compose.yml config --quiet
-docker compose --env-file .env.production -f compose.yml build postgres-crm keycloak transcription-api
+docker compose --env-file .env.production -f compose.yml build postgres-crm keycloak dictation-worker transcription-api
 ```
 
 ## 4. Démarrage initial
@@ -125,7 +125,7 @@ docker run --rm -v crm-hypothecaire_n8n_data:/data:ro alpine:3.22 sh -c 'test -f
 Après la restauration des données CRM et du volume n8n :
 
 ```bash
-docker compose --env-file .env.production -f compose.yml up -d keycloak n8n transcription-api caddy
+docker compose --env-file .env.production -f compose.yml up -d keycloak n8n dictation-worker transcription-api caddy
 docker compose --env-file .env.production -f compose.yml ps
 ```
 

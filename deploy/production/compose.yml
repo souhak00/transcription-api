@@ -138,6 +138,32 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  dictation-worker:
+    build:
+      context: ../..
+      dockerfile: deploy/dictation/Containerfile
+      args:
+        VOSK_MODEL_URL: https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      DICTATION_WORKER_TOKEN: ${DICTATION_WORKER_TOKEN}
+      DICTATION_MAX_WAV_BYTES: "2097152"
+      DICTATION_MAX_DURATION_SECONDS: "35"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2701/health', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    mem_limit: 512m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+
   transcription-api:
     build:
       context: ../..
@@ -155,6 +181,11 @@ services:
       DIARIZATION_MODEL: pyannote/speaker-diarization-3.1
       FFMPEG_AUDIO_FILTERS: highpass=f=80,lowpass=f=7800,loudnorm
       MAX_UPLOAD_BODY_MB: "512"
+      DICTATION_WORKER_URL: http://dictation-worker:2701
+      DICTATION_WORKER_TOKEN: ${DICTATION_WORKER_TOKEN}
+      DICTATION_MAX_UPLOAD_MB: "2"
+      DICTATION_MAX_PENDING: "3"
+      DICTATION_TIMEOUT_MS: "45000"
       N8N_AGENT_WEBHOOK_URL: http://n8n:5678/webhook/crm/agent-chat
       N8N_RECENT_CLIENTS_WEBHOOK_URL: http://n8n:5678/webhook/crm/clients-recents
       N8N_MISSING_DOCUMENTS_WEBHOOK_URL: http://n8n:5678/webhook/crm/documents-manquants
@@ -185,6 +216,8 @@ services:
         condition: service_started
       n8n:
         condition: service_started
+      dictation-worker:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s

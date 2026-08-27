@@ -401,7 +401,7 @@ export class AgentRequestError extends Error {
 }
 
 /** Valide et normalise le message provenant de l interface Web. */
-export function normalizeAgentRequest(body = {}) {
+export function normalizeAgentRequest(body = {}, options = {}) {
   const message = typeof body.message === "string" ? body.message.trim() : "";
 
   if (!message) {
@@ -431,7 +431,7 @@ export function normalizeAgentRequest(body = {}) {
     lastResultCodes: normalizeContextCodes(body.context?.lastResultCodes)
   };
   const portfolio = detectPortfolioQuery(message, contextInput);
-  const calendar = detectCalendarQuery(message);
+  const calendar = detectCalendarQuery(message, options.now ?? new Date());
 
   if (intent === AGENT_INTENTS.CONVERSATION) {
     if (calendar) {

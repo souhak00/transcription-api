@@ -64,6 +64,27 @@ services:
     restart: unless-stopped
 
   # Service HTTP local appele par curl ou par le noeud HTTP Request de n8n.
+  dictation-worker:
+    build:
+      context: .
+      dockerfile: deploy/dictation/Containerfile
+      args:
+        VOSK_MODEL_URL: https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip
+    container_name: dictation-worker
+    environment:
+      DICTATION_WORKER_TOKEN: ${DICTATION_WORKER_TOKEN:-local-dictation-worker}
+      DICTATION_MAX_WAV_BYTES: 2097152
+      DICTATION_MAX_DURATION_SECONDS: 35
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2701/health', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+
   transcription-api:
     # Construit l'image depuis le Dockerfile du dossier courant.
     build:
@@ -89,6 +110,11 @@ services:
       # HUGGINGFACE_TOKEN est requis si le modele pyannote choisi est protege.
       # HUGGINGFACE_TOKEN: hf_xxx
       MAX_UPLOAD_BODY_MB: 512
+      DICTATION_WORKER_URL: http://dictation-worker:2701
+      DICTATION_WORKER_TOKEN: ${DICTATION_WORKER_TOKEN:-local-dictation-worker}
+      DICTATION_MAX_UPLOAD_MB: 2
+      DICTATION_MAX_PENDING: 3
+      DICTATION_TIMEOUT_MS: 45000
       # L API relaie les messages Web vers n8n; le navigateur ne connait pas cette URL.
       N8N_AGENT_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agent-chat
       N8N_RECENT_CLIENTS_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/clients-recents
@@ -115,6 +141,9 @@ services:
       # Conserve les transcriptions sur le disque meme si le conteneur est supprime.
       - ./outputs:/app/outputs
     restart: unless-stopped
+    depends_on:
+      dictation-worker:
+        condition: service_healthy
 
 volumes:
   # Volume Docker persistant qui stocke physiquement les donnees PostgreSQL.

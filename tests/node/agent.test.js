@@ -55,11 +55,12 @@ test("les demandes d’agenda et de rappels sont interprétées sans LLM", () =>
 });
 
 test("buildCalendarDraft prépare un rendez-vous à confirmer", () => {
+  const now = new Date("2026-08-26T15:00:00Z");
   const input = normalizeAgentRequest({
     message: "Planifie un rendez-vous demain à 14h30",
     context: { activeClient: "CLI-2026-KP-000010" }
-  });
-  const draft = buildCalendarDraft(input, new Date("2026-08-26T15:00:00Z"));
+  }, { now });
+  const draft = buildCalendarDraft(input, now);
 
   assert.equal(draft.clientReference, "CLI-2026-KP-000010");
   assert.equal(draft.type, "rencontre");
@@ -69,8 +70,12 @@ test("buildCalendarDraft prépare un rendez-vous à confirmer", () => {
 });
 
 test("buildCalendarDraft accepte une heure sans minutes", () => {
-  const input = normalizeAgentRequest({ message: "Planifie un appel demain à 9h" });
-  const draft = buildCalendarDraft(input, new Date("2026-08-26T15:00:00Z"));
+  const now = new Date("2026-08-26T15:00:00Z");
+  const input = normalizeAgentRequest(
+    { message: "Planifie un appel demain à 9h" },
+    { now }
+  );
+  const draft = buildCalendarDraft(input, now);
 
   assert.equal(draft.type, "appel");
   assert.equal(draft.start, "2026-08-27T13:00:00.000Z");

@@ -42,6 +42,7 @@ KEYCLOAK_DB_PASSWORD="$(random_hex)"
 CRM_RUNTIME_PASSWORD="$(random_hex)"
 KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD="$(random_hex)"
 N8N_PROXY_PASSWORD="$(openssl rand -hex 20)"
+DICTATION_WORKER_TOKEN="$(random_hex)"
 N8N_PROXY_PASSWORD_HASH="$(printf '%s\n' "$N8N_PROXY_PASSWORD" \
   | docker run --rm -i caddy:2.10.2-alpine caddy hash-password)"
 
@@ -69,6 +70,7 @@ N8N_PROXY_PASSWORD_HASH='$N8N_PROXY_PASSWORD_HASH'
 
 HUGGINGFACE_TOKEN=
 OLLAMA_MODEL=mistral-nemo
+DICTATION_WORKER_TOKEN=$DICTATION_WORKER_TOKEN
 EOF
 
 mkdir -p "$(dirname "$INITIAL_SECRETS_FILE")"

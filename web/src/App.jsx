@@ -15,12 +15,14 @@ import {
   Mail,
   Menu,
   MessageSquareText,
+  Mic,
   PanelLeftClose,
   Phone,
   RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
+  Square,
   UserRound,
   UsersRound,
   X
@@ -85,6 +87,16 @@ const journeyStatusLabels = {
 
 function createSessionId() {
   return globalThis.crypto?.randomUUID?.() ?? `session-${Date.now()}`;
+}
+
+function selectDictationMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  return [
+    "audio/webm;codecs=opus",
+    "audio/mp4",
+    "audio/ogg;codecs=opus",
+    "audio/webm"
+  ].find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
 }
 
 function getInitials(name = "") {
@@ -248,6 +260,7 @@ function App({ identity }) {
   const [messages, setMessages] = useState(initialMessages);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
+  const [dictationState, setDictationState] = useState("idle");
   const [calendarDraft, setCalendarDraft] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [error, setError] = useState("");
@@ -269,6 +282,11 @@ function App({ identity }) {
   const shouldFollowMessagesRef = useRef(true);
   const dossierInputRef = useRef(null);
   const dossierRequestIdRef = useRef(0);
+  const recorderRef = useRef(null);
+  const microphoneStreamRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const dictationTimeoutRef = useRef(null);
+  const dictationCancelledRef = useRef(false);
   const representativeName = identity.user.name || "Représentant";
   const representativeInitials = getInitials(representativeName);
   const isAdministrator = identity.user.role === "admin";
@@ -285,6 +303,13 @@ function App({ identity }) {
     if (activeView !== "assistant" || !shouldFollowMessagesRef.current) return;
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [activeView, messages, pending]);
+
+  useEffect(() => () => {
+    clearTimeout(dictationTimeoutRef.current);
+    dictationCancelledRef.current = true;
+    if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
+    microphoneStreamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   function openAssistant() {
     setActiveView("assistant");
@@ -459,7 +484,7 @@ function App({ identity }) {
 
   async function sendMessage(rawMessage, intent = null) {
     const message = rawMessage.trim();
-    if (!message || pending) return;
+    if (!message || pending || dictationState !== "idle") return;
 
     const userMessage = {
       id: `user-${Date.now()}`,
@@ -529,6 +554,118 @@ function App({ identity }) {
   function submit(event) {
     event.preventDefault();
     sendMessage(draft);
+  }
+
+  function releaseMicrophone() {
+    clearTimeout(dictationTimeoutRef.current);
+    dictationTimeoutRef.current = null;
+    microphoneStreamRef.current?.getTracks().forEach((track) => track.stop());
+    microphoneStreamRef.current = null;
+  }
+
+  async function transcribeRecording(blob) {
+    if (!blob.size) {
+      setDictationState("idle");
+      setError("Aucun son n’a été enregistré.");
+      return;
+    }
+
+    setDictationState("transcribing");
+    setError("");
+    try {
+      const response = await identity.apiFetch("/api/agent/dictation", {
+        method: "POST",
+        headers: {
+          "content-type": blob.type || "audio/webm",
+          accept: "application/json"
+        },
+        body: blob
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || "La transcription locale a échoué.");
+      }
+
+      const transcript = String(payload.transcript || "").trim();
+      if (!transcript) throw new Error("Aucune parole n’a été reconnue.");
+      setDraft((current) => [current.trim(), transcript].filter(Boolean).join(" ").slice(0, 1000));
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    } catch (dictationError) {
+      setError(dictationError.message);
+    } finally {
+      setDictationState("idle");
+    }
+  }
+
+  function stopDictation(cancelled = false) {
+    dictationCancelledRef.current = cancelled;
+    const recorder = recorderRef.current;
+    if (recorder?.state && recorder.state !== "inactive") recorder.stop();
+    releaseMicrophone();
+    if (cancelled) setDictationState("idle");
+  }
+
+  async function startDictation() {
+    if (pending || dictationState !== "idle") return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setError("La dictée n’est pas prise en charge par ce navigateur.");
+      return;
+    }
+
+    setError("");
+    dictationCancelledRef.current = false;
+    audioChunksRef.current = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 48000 },
+          sampleSize: { ideal: 16 },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          voiceIsolation: { ideal: true }
+        },
+        video: false
+      });
+      const mimeType = selectDictationMimeType();
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: 64000
+      });
+
+      microphoneStreamRef.current = stream;
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) audioChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        releaseMicrophone();
+        setDictationState("idle");
+        setError("L’enregistrement du microphone a été interrompu.");
+      };
+      recorder.onstop = () => {
+        releaseMicrophone();
+        const cancelled = dictationCancelledRef.current;
+        const blob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || mimeType || "audio/webm"
+        });
+        audioChunksRef.current = [];
+        recorderRef.current = null;
+        if (cancelled) return;
+        void transcribeRecording(blob);
+      };
+
+      recorder.start(250);
+      setDictationState("recording");
+      dictationTimeoutRef.current = window.setTimeout(() => stopDictation(false), 30000);
+    } catch (microphoneError) {
+      releaseMicrophone();
+      setDictationState("idle");
+      setError(microphoneError.name === "NotAllowedError"
+        ? "Autorisez l’accès au microphone pour utiliser la dictée."
+        : "Le microphone n’est pas disponible.");
+    }
   }
 
   return (
@@ -743,6 +880,11 @@ function App({ identity }) {
                   value={draft}
                   onChange={(event) => setDraft(event.target.value.slice(0, 1000))}
                   onKeyDown={(event) => {
+                    if (event.key === "Escape" && dictationState === "recording") {
+                      event.preventDefault();
+                      stopDictation(true);
+                      return;
+                    }
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       submit(event);
@@ -750,18 +892,35 @@ function App({ identity }) {
                   }}
                   placeholder="Statut, prêteur, taux, fermeture, documents ou tâches…"
                   rows="2"
-                  disabled={pending}
+                  disabled={pending || dictationState === "transcribing"}
                   aria-label="Message à l’assistant"
                 />
                 <button
+                  className={`dictation-button ${dictationState === "recording" ? "is-recording" : ""}`}
+                  type="button"
+                  disabled={pending || dictationState === "transcribing"}
+                  aria-label={dictationState === "recording" ? "Arrêter la dictée" : "Dicter un message"}
+                  aria-pressed={dictationState === "recording"}
+                  onClick={() => dictationState === "recording" ? stopDictation(false) : startDictation()}
+                >
+                  {dictationState === "recording" ? <Square size={16} /> : <Mic size={19} />}
+                </button>
+                <button
                   className="send-button"
                   type="submit"
-                  disabled={!draft.trim() || pending}
+                  disabled={!draft.trim() || pending || dictationState !== "idle"}
                   aria-label="Envoyer le message"
                 >
                   <ArrowUp size={19} />
                 </button>
               </form>
+              {dictationState !== "idle" && (
+                <p className={`dictation-status ${dictationState}`} aria-live="polite">
+                  {dictationState === "recording"
+                    ? "Écoute en cours — cliquez sur le carré pour arrêter."
+                    : "Transcription locale en cours…"}
+                </p>
+              )}
               <p className="composer-note">
                 L’assistant peut faire des erreurs. Validez les informations avant toute action client.
               </p>

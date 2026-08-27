@@ -5,11 +5,13 @@
 | Sujet | Document |
 |---|---|
 | Architecture globale, frontières et historique | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
+| Modèle C4 complet et vues d’architecture | [`architecture/c4/README.md`](./architecture/c4/README.md) |
 | Contexte permanent et décisions | [`../CONTEXTE_PROJET.md`](../CONTEXTE_PROJET.md) |
 | Gestion documentaire, OCR et extraction | [`gestion-documentaire-ocr.md`](./gestion-documentaire-ocr.md) |
 | Couverture de la checklist hypothécaire | [`checklist-documents-hypothecaires.md`](./checklist-documents-hypothecaires.md) |
 | Parcours hypothécaire en 11 étapes | [`parcours-hypothecaire.md`](./parcours-hypothecaire.md) |
 | Agenda, rencontres et rappels | [`agenda-rappels.md`](./agenda-rappels.md) |
+| Dictée vocale locale et hors ligne | [`dictee-vocale-hors-ligne.md`](./dictee-vocale-hors-ligne.md) |
 | Capacité du VPS Hostinger | [`capacite-hostinger.md`](./capacite-hostinger.md) |
 | Déploiement Hostinger | [`../deploy/production/README.md`](../deploy/production/README.md) |
 | Contrat de l’agent | [`CONTRAT_AGENT_V1.md`](./CONTRAT_AGENT_V1.md) |
