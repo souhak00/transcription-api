@@ -1,0 +1,289 @@
+{
+  "id": "V0uQJWQWiUEOSsZA",
+  "name": "ARCHIVE - NE PAS ACTIVER - CRM Agent conversationnel identite fixe",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [0, 0],
+      "id": "e14fd3f1-73a8-4ceb-8659-678442de725e",
+      "name": "When chat message received",
+      "webhookId": "0e0d3463-60fe-4865-935e-f236b0dbc05d",
+      "notesInFlow": true,
+      "notes": "Déclencheur de test uniquement. L’architecture cible utilisera l’API authentifiée et le JWT."
+    },
+    {
+      "parameters": {
+        "jsCode": "const entree = $input.first().json;\nconst chatInput = typeof entree.chatInput === 'string' ? entree.chatInput.trim() : '';\nconst texte = chatInput\n  .normalize('NFD')\n  .replace(/[\\u0300-\\u036f]/g, '')\n  .toLowerCase();\nconst contient = (...termes) => termes.some((terme) => texte.includes(terme));\n\nlet intention = 'conversation';\nlet route = 3;\n\nif (contient('dernier client', 'derniers clients', 'client recent', 'clients recents', 'derniere fiche', 'dernieres fiches', 'dernier dossier', 'derniers dossiers')) {\n  intention = 'clients_recents';\n  route = 0;\n} else if (contient('document', 'piece', 'preuve', 'manquant', 'a recevoir')) {\n  intention = 'documents';\n  route = 1;\n} else if (contient('tache', 'suivi', 'echeance', 'relance')) {\n  intention = 'taches';\n  route = 2;\n}\n\nreturn [{ json: { ...entree, chatInput, intention, route } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "id": "cda62d39-911e-4810-bf29-654641866103",
+      "name": "Détecter intention",
+      "notesInFlow": true,
+      "notes": "Classe uniquement les intentions CRM explicites. Toute autre demande est envoyée à l’agent Ollama."
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 4,
+        "output": "={{ $json.route }}",
+        "looseTypeValidation": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [480, 0],
+      "id": "e264a885-cd6f-4259-a4a8-3715850e26ba",
+      "name": "Router intention",
+      "notesInFlow": true,
+      "notes": "Sorties : 0 clients récents, 1 documents, 2 tâches, 3 conversation libre."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', 'ac7b7a4b-907e-4733-a0de-4e5ed40e6af0', true)\n)\nSELECT crm.obtenir_derniers_clients() AS resultat\nFROM contexte;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [740, -360],
+      "id": "d81d791f-b46c-4486-8c80-8362889501e3",
+      "name": "CRM - Derniers clients",
+      "credentials": {
+        "postgres": {
+          "id": "wCLuOE3i6RejO6bL",
+          "name": "Postgres CRM Runtime"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', 'ac7b7a4b-907e-4733-a0de-4e5ed40e6af0', true)\n)\nSELECT crm.obtenir_documents_client($1::text) AS resultat\nFROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$('Détecter intention').item.json.chatInput] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [740, -160],
+      "id": "5e67d102-20d6-4fe1-a608-e7eeeb5f259c",
+      "name": "CRM - Documents déterministe",
+      "credentials": {
+        "postgres": {
+          "id": "wCLuOE3i6RejO6bL",
+          "name": "Postgres CRM Runtime"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', 'ac7b7a4b-907e-4733-a0de-4e5ed40e6af0', true)\n)\nSELECT crm.obtenir_taches_client($1::text) AS resultat\nFROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$('Détecter intention').item.json.chatInput] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [740, 40],
+      "id": "96e66a95-384a-448d-a7ed-cf85559ee801",
+      "name": "CRM - Tâches déterministe",
+      "credentials": {
+        "postgres": {
+          "id": "wCLuOE3i6RejO6bL",
+          "name": "Postgres CRM Runtime"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.resultat;\nconst data = typeof raw === 'string' ? JSON.parse(raw) : raw;\nconst intention = $('Détecter intention').item.json.intention;\n\nconst ambiguite = () => {\n  const choix = Array.isArray(data?.correspondances) ? data.correspondances : [];\n  return `Plusieurs clients correspondent :\\n${choix.map((c, i) => `${i + 1}. ${c.nom_client} — ${c.code_client}`).join('\\n')}\\n\\nPrécisez le client recherché.`;\n};\n\nif (data?.ambigue) {\n  return [{ json: { output: ambiguite() } }];\n}\n\nif (intention !== 'clients_recents' && !data?.trouve) {\n  return [{ json: { output: 'Aucun client correspondant n’a été trouvé.' } }];\n}\n\nif (intention === 'clients_recents') {\n  const clients = Array.isArray(data?.clients) ? data.clients : [];\n  const lignes = clients.map((c, i) => `${i + 1}. ${c.nom_client} — ${c.code_client} — ${c.statut_dossier}`);\n  return [{ json: { output: clients.length ? `Voici les ${clients.length} clients les plus récents :\\n\\n${lignes.join('\\n')}` : 'Aucun client récent n’est disponible.' } }];\n}\n\nif (intention === 'documents') {\n  const documents = Array.isArray(data?.documents) ? data.documents : [];\n  const lignes = documents.map((d, i) => `${i + 1}. ${d.document} — ${d.statut}`);\n  return [{ json: { output: `Documents de ${data.nom_client} (${data.code_client}) : ${data.nombre_documents_manquants} manquant(s) sur ${data.nombre_documents}.\\n\\n${lignes.join('\\n') || 'Aucun document enregistré.'}` } }];\n}\n\nconst taches = Array.isArray(data?.taches) ? data.taches : [];\nconst lignes = taches.map((t, i) => `${i + 1}. ${t.titre} — ${t.statut}${t.date_echeance ? ` — échéance ${t.date_echeance}` : ''}`);\nreturn [{ json: { output: `Tâches de ${data.nom_client} (${data.code_client}) : ${data.nombre_taches_ouvertes} ouverte(s) sur ${data.nombre_taches}.\\n\\n${lignes.join('\\n') || 'Aucune tâche enregistrée.'}` } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, -160],
+      "id": "62a7558b-f9ad-4100-a738-52e24160b197",
+      "name": "Formater réponse déterministe",
+      "notesInFlow": true,
+      "notes": "Produit toujours un champ output compatible avec le Chat Trigger, y compris pour les absences et ambiguïtés."
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "Tu es un assistant CRM hypothécaire québécois en lecture seule. Réponds en français, de façon concise et professionnelle. Utilise exclusivement les outils CRM disponibles. N’invente jamais de donnée et ne révèle jamais d’UUID, de code représentant ou d’identifiant technique. Le code_client au format CLI-AAAA-II-NNNNNN est un identifiant métier autorisé et peut être affiché. Pour une question de recherche générale, utilise Rechercher client. Pour toute question sur les documents, appelle directement Obtenir documents avec le nom ou le code fourni par l’utilisateur; n’utilise jamais la seule recherche pour répondre. Pour toute question sur les tâches, appelle directement Obtenir tâches avec le nom ou le code fourni par l’utilisateur; n’utilise jamais la seule recherche pour répondre. Si un outil indique ambigue=true, présente les noms et leurs code_client, puis demande une clarification. Si trouve=false, indique qu’aucune correspondance unique n’a été trouvée. Un champ de profil nul n’est jamais un document manquant ni une tâche. Pour une demande portant sur les clients les plus récents, utilise Derniers clients et présente au maximum dix noms avec leur code_client et leur statut. Ne crée, ne modifie et ne supprime aucune donnée. Pour une question hors périmètre CRM, explique brièvement les capacités disponibles."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [760, 300],
+      "id": "025c046f-c408-4bbd-b999-49be31fdac2f",
+      "name": "Agent conversationnel CRM"
+    },
+    {
+      "parameters": {
+        "model": "mistral-nemo",
+        "options": {
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
+      "typeVersion": 1,
+      "position": [600, 560],
+      "id": "08c61134-d760-4ffe-b5c3-dd32767a27b9",
+      "name": "Ollama - mistral-nemo",
+      "credentials": {
+        "ollamaApi": {
+          "id": "A74dukCG3YuXkEIj",
+          "name": "Ollama account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Rechercher un client du représentant authentifié. Utilise cet outil avant tout autre outil lorsqu’un nom est mentionné. L’entrée terme_client contient uniquement le nom ou le terme de recherche. Si plusieurs clients correspondent sans correspondance exacte unique, demande une clarification et n’appelle aucun autre outil.",
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', 'ac7b7a4b-907e-4733-a0de-4e5ed40e6af0', true)\n)\nSELECT crm.rechercher_clients_agent($1::text) AS resultat\nFROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$fromAI(\"terme_client\", \"Nom ou terme de recherche du client\", \"string\")] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [820, 560],
+      "id": "ee44c7d4-bc84-4379-b2c9-9cbe50eea5ee",
+      "name": "Tool - Rechercher client",
+      "notesInFlow": true,
+      "notes": "Le representant_id fixe est réservé au test local et sera remplacé par l’identité issue du JWT.",
+      "credentials": {
+        "postgres": {
+          "id": "wCLuOE3i6RejO6bL",
+          "name": "Postgres CRM Runtime"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Outil obligatoire pour toute question sur les documents. Appelle-le directement avec la référence fournie par l’utilisateur : nom du client ou code au format CLI-AAAA-II-NNNNNN. Le service résout le client et signale les ambiguïtés. N’interprète jamais un champ de profil comme un document.",
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', 'ac7b7a4b-907e-4733-a0de-4e5ed40e6af0', true)\n)\nSELECT crm.obtenir_documents_client($1::text) AS resultat\nFROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$('When chat message received').item.json.chatInput] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [1040, 560],
+      "id": "a6233e35-5faf-481d-9658-b9892ce5bcf1",
+      "name": "Tool - Obtenir documents",
+      "notesInFlow": true,
+      "notes": "Utilise uniquement le service PostgreSQL autorisé.",
+      "credentials": {
+        "postgres": {
+          "id": "wCLuOE3i6RejO6bL",
+          "name": "Postgres CRM Runtime"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Outil obligatoire pour toute question sur les tâches. Appelle-le directement avec la référence fournie par l’utilisateur : nom du client ou code au format CLI-AAAA-II-NNNNNN. Le service résout le client et signale les ambiguïtés. Ne réponds jamais à partir du seul profil client.",
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', 'ac7b7a4b-907e-4733-a0de-4e5ed40e6af0', true)\n)\nSELECT crm.obtenir_taches_client($1::text) AS resultat\nFROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$('When chat message received').item.json.chatInput] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [1260, 560],
+      "id": "b6dbd7ba-9255-4ac7-afc1-eae071b3c8f2",
+      "name": "Tool - Obtenir tâches",
+      "notesInFlow": true,
+      "notes": "Utilise uniquement le service PostgreSQL autorisé.",
+      "credentials": {
+        "postgres": {
+          "id": "wCLuOE3i6RejO6bL",
+          "name": "Postgres CRM Runtime"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Obtenir les dix clients visibles les plus récemment créés pour le représentant authentifié. Utilise cet outil lorsqu’on demande les derniers clients, les clients récents ou les nouvelles fiches. Présente au maximum dix noms avec leur code_client et leur statut. Ne montre jamais les UUID ni les identifiants techniques.",
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', 'ac7b7a4b-907e-4733-a0de-4e5ed40e6af0', true)\n)\nSELECT crm.obtenir_derniers_clients() AS resultat\nFROM contexte;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgresTool",
+      "typeVersion": 2.6,
+      "position": [1480, 560],
+      "id": "d1bb9f3e-cd82-487b-b8df-cce230458b76",
+      "name": "Tool - Derniers clients",
+      "notesInFlow": true,
+      "notes": "Retourne au maximum dix clients, filtrés par la RLS et ordonnés par date de création décroissante.",
+      "credentials": {
+        "postgres": {
+          "id": "wCLuOE3i6RejO6bL",
+          "name": "Postgres CRM Runtime"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When chat message received": {
+      "main": [[{"node": "Détecter intention", "type": "main", "index": 0}]]
+    },
+    "Détecter intention": {
+      "main": [[{"node": "Router intention", "type": "main", "index": 0}]]
+    },
+    "Router intention": {
+      "main": [
+        [{"node": "CRM - Derniers clients", "type": "main", "index": 0}],
+        [{"node": "CRM - Documents déterministe", "type": "main", "index": 0}],
+        [{"node": "CRM - Tâches déterministe", "type": "main", "index": 0}],
+        [{"node": "Agent conversationnel CRM", "type": "main", "index": 0}]
+      ]
+    },
+    "CRM - Derniers clients": {
+      "main": [[{"node": "Formater réponse déterministe", "type": "main", "index": 0}]]
+    },
+    "CRM - Documents déterministe": {
+      "main": [[{"node": "Formater réponse déterministe", "type": "main", "index": 0}]]
+    },
+    "CRM - Tâches déterministe": {
+      "main": [[{"node": "Formater réponse déterministe", "type": "main", "index": 0}]]
+    },
+    "Ollama - mistral-nemo": {
+      "ai_languageModel": [[{"node": "Agent conversationnel CRM", "type": "ai_languageModel", "index": 0}]]
+    },
+    "Tool - Rechercher client": {
+      "ai_tool": [[{"node": "Agent conversationnel CRM", "type": "ai_tool", "index": 0}]]
+    },
+    "Tool - Obtenir documents": {
+      "ai_tool": [[{"node": "Agent conversationnel CRM", "type": "ai_tool", "index": 0}]]
+    },
+    "Tool - Obtenir tâches": {
+      "ai_tool": [[{"node": "Agent conversationnel CRM", "type": "ai_tool", "index": 0}]]
+    },
+    "Tool - Derniers clients": {
+      "ai_tool": [[{"node": "Agent conversationnel CRM", "type": "ai_tool", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "pinData": {}
+}

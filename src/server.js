@@ -1,5 +1,47 @@
 import http from "node:http";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  AgentRequestError,
+  buildCalendarDraft,
+  detectCalendarQuery,
+  extractClientCodes,
+  extractUniqueClientCode,
+  normalizeAgentRequest,
+  normalizeClientReference,
+  requestAgentReply,
+  requestClientDossier,
+  requestPortfolioData
+} from "./agent.js";
+import { AGENT_INTENTS, buildAgentResponse } from "./contracts.js";
+import {
+  createCalendarEvent,
+  formatCalendarReply,
+  requestCalendarData,
+  updateCalendarEvent
+} from "./calendar.js";
+import { normalizeDossierUpdate, requestDossierUpdate } from "./dossier-write.js";
+import {
+  createDictationService,
+  DictationError,
+  loadDictationConfig,
+  normalizeCrmDictationTranscript
+} from "./dictation.js";
+import {
+  AuthenticationError,
+  authenticateIdentity,
+  authenticateRequest,
+  loadKeycloakConfig
+} from "./keycloak.js";
+import {
+  createRepresentativeAccount,
+  KeycloakAdminError,
+  listRepresentativeAccounts,
+  loadKeycloakAdminConfig,
+  resetRepresentativePassword,
+  revokeRepresentativeSessions,
+  setRepresentativeAccountEnabled
+} from "./keycloak-admin.js";
 import { loadEnvFile } from "./env.js";
 import { transcribeMedia } from "./transcribe.js";
 import { readRequestBuffer, saveBase64File, saveMultipartFile } from "./upload.js";
@@ -10,6 +52,51 @@ await loadEnvFile();
 // Le conteneur ecoute sur 0.0.0.0; en lancement direct, 127.0.0.1 est plus restrictif.
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || "127.0.0.1";
+const WEB_DIST_DIR = path.resolve(process.env.WEB_DIST_DIR || "web/dist");
+const keycloakConfig = loadKeycloakConfig();
+const keycloakAdminConfig = loadKeycloakAdminConfig();
+const dictationConfig = loadDictationConfig();
+const transcribeDictation = createDictationService({ config: dictationConfig });
+const dictationClientNamesCache = new Map();
+const keycloakBrowserConfig = {
+  url: String(process.env.KEYCLOAK_PUBLIC_URL ?? "http://localhost:8080").replace(/\/+$/, ""),
+  realm: String(process.env.KEYCLOAK_REALM ?? "crm-local"),
+  clientId: String(process.env.KEYCLOAK_CLIENT_ID ?? "crm-web")
+};
+
+function getAllowedIdentityOrigin() {
+  try {
+    return new URL(keycloakBrowserConfig.url).origin;
+  } catch {
+    return "";
+  }
+}
+
+const contentTypes = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp"
+};
+
+function securityHeaders(contentType) {
+  const identityOrigin = getAllowedIdentityOrigin();
+  return {
+    "content-type": contentType,
+    "cache-control": contentType.startsWith("text/html") || contentType.startsWith("application/json")
+      ? "no-store"
+      : "public, max-age=3600",
+    "content-security-policy": `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ${identityOrigin}; font-src 'self'; base-uri 'none'; frame-ancestors 'none'`,
+    "permissions-policy": "microphone=(self), camera=()",
+    "referrer-policy": "no-referrer",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY"
+  };
+}
 
 /** Lit une requete JSON et renvoie un objet vide si aucun corps n'est envoye. */
 async function readJson(request) {
@@ -24,8 +111,70 @@ async function readJson(request) {
 
 /** Produit une reponse API JSON avec le code HTTP indique. */
 function sendJson(response, status, payload) {
-  response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
+  response.writeHead(status, securityHeaders("application/json; charset=utf-8"));
   response.end(JSON.stringify(payload, null, 2));
+}
+
+async function requireAdministrator(request) {
+  const identity = await authenticateIdentity(request, keycloakConfig);
+  if (identity.role !== "admin") {
+    throw new AuthenticationError("Droits administrateur requis.", 403);
+  }
+  return identity;
+}
+
+async function getDictationClientNames(representativeId) {
+  const cached = dictationClientNamesCache.get(representativeId);
+  if (cached?.expiresAt > Date.now()) return cached.names;
+
+  const portfolio = await requestPortfolioData({
+    limit: 100,
+    sort: [{ field: "updated_at", direction: "desc" }]
+  }, { representativeId });
+  const names = [...new Set(portfolio.rows
+    .map((row) => String(row.nom_client ?? "").trim())
+    .filter(Boolean))];
+  dictationClientNamesCache.set(representativeId, {
+    names,
+    expiresAt: Date.now() + 5 * 60 * 1000
+  });
+  return names;
+}
+
+/** Sert le build React et utilise index.html comme repli pour la navigation. */
+async function serveWebApp(url, response) {
+  const requestedPath = decodeURIComponent(url.pathname);
+  const relativePath = requestedPath === "/" ? "index.html" : requestedPath.replace(/^\/+/, "");
+  const candidate = path.resolve(WEB_DIST_DIR, relativePath);
+  const isInsideWebRoot = candidate === WEB_DIST_DIR || candidate.startsWith(`${WEB_DIST_DIR}${path.sep}`);
+
+  if (!isInsideWebRoot) {
+    return false;
+  }
+
+  let filePath = candidate;
+  let content;
+
+  try {
+    content = await readFile(filePath);
+  } catch {
+    if (path.extname(relativePath)) {
+      return false;
+    }
+
+    filePath = path.join(WEB_DIST_DIR, "index.html");
+    try {
+      content = await readFile(filePath);
+    } catch {
+      return false;
+    }
+  }
+
+  const contentType = contentTypes[path.extname(filePath).toLowerCase()]
+    || "application/octet-stream";
+  response.writeHead(200, securityHeaders(contentType));
+  response.end(content);
+  return true;
 }
 
 // Le serveur traite chaque requete selon sa methode HTTP et son chemin URL.
@@ -35,7 +184,244 @@ const server = http.createServer(async (request, response) => {
 
     // Route de supervision: elle confirme que l'API est demarree.
     if (request.method === "GET" && url.pathname === "/health") {
-      sendJson(response, 200, { ok: true });
+      sendJson(response, 200, {
+        ok: true,
+        keycloakConfigured: keycloakConfig.configured,
+        agentConfigured: Boolean(process.env.N8N_AGENT_WEBHOOK_URL),
+        missingDocumentsConfigured: Boolean(process.env.N8N_MISSING_DOCUMENTS_WEBHOOK_URL),
+        portfolioConfigured: Boolean(process.env.N8N_PORTFOLIO_WEBHOOK_URL),
+        calendarConfigured: Boolean(process.env.N8N_CALENDAR_WEBHOOK_URL),
+        calendarWriteConfigured: Boolean(process.env.N8N_CALENDAR_WRITE_WEBHOOK_URL),
+        calendarUpdateConfigured: Boolean(process.env.N8N_CALENDAR_UPDATE_WEBHOOK_URL
+          ?? process.env.N8N_CALENDAR_WRITE_WEBHOOK_URL),
+        dictationConfigured: Boolean(dictationConfig.workerUrl && dictationConfig.workerToken),
+        clientDossierConfigured: Boolean(process.env.N8N_CLIENT_DOSSIER_WEBHOOK_URL),
+        dossierWriteConfigured: Boolean(process.env.N8N_DOSSIER_WRITE_WEBHOOK_URL)
+      });
+      return;
+    }
+
+    // Configuration OIDC publique nécessaire au navigateur; aucun secret n’est exposé.
+    if (request.method === "GET" && url.pathname === "/api/auth/config") {
+      sendJson(response, 200, keycloakBrowserConfig);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/me") {
+      const user = await authenticateIdentity(request, keycloakConfig);
+      sendJson(response, 200, {
+        email: user.email,
+        name: user.representantName,
+        role: user.role
+      });
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/portfolio") {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const portfolio = await requestPortfolioData({
+        status: url.searchParams.get("status") ?? "",
+        followUp: url.searchParams.get("followUp") === "true",
+        limit: url.searchParams.get("limit") ?? 100,
+        sort: [{ field: url.searchParams.get("sort") ?? "updated_at", direction: "desc" }]
+      }, { representativeId: user.representantId });
+      sendJson(response, 200, portfolio);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/calendar") {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const now = new Date();
+      const defaultPeriod = detectCalendarQuery("agenda ce mois", now);
+      const calendar = await requestCalendarData({
+        start: url.searchParams.get("start") ?? defaultPeriod.start,
+        end: url.searchParams.get("end") ?? defaultPeriod.end,
+        type: url.searchParams.get("type") ?? "",
+        status: url.searchParams.get("status") ?? "",
+        remindersOnly: url.searchParams.get("remindersOnly") === "true",
+        clientReference: url.searchParams.get("clientReference") ?? ""
+      }, { representativeId: user.representantId });
+      sendJson(response, 200, calendar);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/calendar/events") {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const event = await createCalendarEvent(await readJson(request), {
+        representativeId: user.representantId,
+        requestId: request.headers["x-idempotency-key"]
+      });
+      sendJson(response, 201, event);
+      return;
+    }
+
+    const calendarEventMatch = url.pathname.match(/^\/api\/calendar\/events\/(EVT-[A-Z0-9]{12})$/i);
+    if (request.method === "PATCH" && calendarEventMatch) {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const event = await updateCalendarEvent(calendarEventMatch[1], await readJson(request), {
+        representativeId: user.representantId,
+        requestId: request.headers["x-idempotency-key"]
+      });
+      sendJson(response, 200, event);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/admin/representatives") {
+      await requireAdministrator(request);
+      const accounts = await listRepresentativeAccounts(keycloakAdminConfig);
+      sendJson(response, 200, { accounts });
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/admin/representatives") {
+      await requireAdministrator(request);
+      const result = await createRepresentativeAccount(
+        keycloakAdminConfig,
+        await readJson(request)
+      );
+      sendJson(response, 201, result);
+      return;
+    }
+
+    const adminPasswordMatch = url.pathname.match(
+      /^\/api\/admin\/representatives\/([0-9a-f-]+)\/password$/i
+    );
+    if (request.method === "PUT" && adminPasswordMatch) {
+      await requireAdministrator(request);
+      const input = await readJson(request);
+      await resetRepresentativePassword(
+        keycloakAdminConfig,
+        adminPasswordMatch[1],
+        input.password
+      );
+      sendJson(response, 200, { status: "password_reset_required" });
+      return;
+    }
+
+    const adminLogoutMatch = url.pathname.match(
+      /^\/api\/admin\/representatives\/([0-9a-f-]+)\/sessions$/i
+    );
+    if (request.method === "DELETE" && adminLogoutMatch) {
+      await requireAdministrator(request);
+      await revokeRepresentativeSessions(keycloakAdminConfig, adminLogoutMatch[1]);
+      sendJson(response, 200, { status: "sessions_revoked" });
+      return;
+    }
+
+    const adminAccountMatch = url.pathname.match(
+      /^\/api\/admin\/representatives\/([0-9a-f-]+)$/i
+    );
+    if (request.method === "PATCH" && adminAccountMatch) {
+      await requireAdministrator(request);
+      const input = await readJson(request);
+      if (typeof input.enabled !== "boolean") {
+        throw new KeycloakAdminError("Le statut du compte est invalide.", 400);
+      }
+      await setRepresentativeAccountEnabled(
+        keycloakAdminConfig,
+        adminAccountMatch[1],
+        input.enabled
+      );
+      sendJson(response, 200, { status: input.enabled ? "enabled" : "disabled" });
+      return;
+    }
+
+    // Frontière conversationnelle: valide l'entrée avant de la transmettre à n8n.
+    if (request.method === "POST" && url.pathname === "/api/agent/messages") {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const input = normalizeAgentRequest(await readJson(request));
+      const isCalendar = [
+        AGENT_INTENTS.CALENDAR_QUERY,
+        AGENT_INTENTS.REMINDERS_QUERY
+      ].includes(input.intent);
+      const calendarMutationHelp = isCalendar && input.calendar?.mutationRequested;
+      const calendarDraft = calendarMutationHelp ? buildCalendarDraft(input) : null;
+      const calendarData = isCalendar && !calendarMutationHelp
+        ? await requestCalendarData(input.calendar, { representativeId: user.representantId })
+        : null;
+      const reply = calendarMutationHelp
+        ? "J’ai préparé le rendez-vous dans l’Agenda. Vérifiez les renseignements, puis confirmez la création."
+        : isCalendar
+        ? formatCalendarReply(calendarData, {
+            remindersOnly: input.intent === AGENT_INTENTS.REMINDERS_QUERY,
+            limit: input.calendar?.period === "upcoming" ? 1 : null
+          })
+        : await requestAgentReply({
+            ...input,
+            representativeId: user.representantId
+          });
+      const clientReference = input.clientReference
+        ?? extractUniqueClientCode(input.message, reply);
+      const resultCodes = extractClientCodes(reply);
+      sendJson(response, 200, buildAgentResponse(input, reply, {
+        clientReference,
+        data: {
+          requested_fields: input.requestedFields,
+          scope: input.scope,
+          result_codes: resultCodes,
+          ...(calendarData ? { calendar: calendarData } : {}),
+          ...(calendarDraft ? { calendar_draft: calendarDraft } : {})
+        }
+      }));
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/agent/dictation") {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const declaredLength = Number(request.headers["content-length"] || 0);
+      if (declaredLength > dictationConfig.maxBytes) {
+        throw new DictationError("L’enregistrement audio dépasse la limite permise.", 413);
+      }
+      let audio;
+      try {
+        audio = await readRequestBuffer(request, {
+          maxBytes: dictationConfig.maxBytes,
+          errorMessage: "L’enregistrement audio dépasse la limite permise."
+        });
+      } catch {
+        throw new DictationError("L’enregistrement audio dépasse la limite permise.", 413);
+      }
+      let transcript = await transcribeDictation(audio, request.headers["content-type"]);
+      if (/\b(?:dossier|client|fichier)\b/i.test(transcript)) {
+        try {
+          transcript = normalizeCrmDictationTranscript(transcript, {
+            clientNames: await getDictationClientNames(user.representantId)
+          });
+        } catch {
+          // La dictée reste utilisable si le portefeuille est momentanément indisponible.
+        }
+      }
+      sendJson(response, 200, { transcript });
+      return;
+    }
+
+    // Vue structurée d’un dossier: le navigateur fournit un code métier ou un nom.
+    if (request.method === "PUT" && url.pathname.startsWith("/api/clients/")
+        && url.pathname.endsWith("/dossier")) {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const encodedReference = url.pathname
+        .slice("/api/clients/".length, -"/dossier".length)
+        .replace(/^\/+|\/+$/g, "");
+      const clientReference = normalizeClientReference(decodeURIComponent(encodedReference));
+      const input = normalizeDossierUpdate(await readJson(request));
+      const dossier = await requestDossierUpdate(clientReference, input, {
+        representativeId: user.representantId
+      });
+      sendJson(response, 200, dossier);
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/api/clients/")
+        && url.pathname.endsWith("/dossier")) {
+      const user = await authenticateRequest(request, keycloakConfig);
+      const encodedReference = url.pathname
+        .slice("/api/clients/".length, -"/dossier".length)
+        .replace(/^\/+|\/+$/g, "");
+      const clientReference = normalizeClientReference(decodeURIComponent(encodedReference));
+      const dossier = await requestClientDossier(clientReference, {
+        representativeId: user.representantId
+      });
+      sendJson(response, 200, dossier);
       return;
     }
 
@@ -92,11 +478,36 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    // Une route API inconnue ne doit jamais retomber sur index.html : le client
+    // attend du JSON et doit recevoir une erreur explicite.
+    if (url.pathname.startsWith("/api/")) {
+      sendJson(response, 404, { error: "Route API introuvable." });
+      return;
+    }
+
+    if (request.method === "GET" && await serveWebApp(url, response)) {
+      return;
+    }
+
     // Toute route non declaree recoit une reponse HTTP 404.
     sendJson(response, 404, { error: "Route introuvable." });
   } catch (error) {
-    // Toute erreur technique est retournee au client au format JSON.
-    sendJson(response, 500, { error: error.message });
+    const status = error instanceof AgentRequestError
+      || error instanceof AuthenticationError
+      || error instanceof KeycloakAdminError
+      || error instanceof DictationError
+      ? error.statusCode
+      : 500;
+    // Les erreurs de l'orchestrateur sont volontairement nettoyees avant retour.
+    sendJson(response, status, {
+      schema_version: "1.0",
+      request_id: request.headers["x-correlation-id"] ?? null,
+      status: "error",
+      data: null,
+      reply: null,
+      clarification: null,
+      error: error.message
+    });
   }
 });
 

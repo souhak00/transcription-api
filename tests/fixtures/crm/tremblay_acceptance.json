@@ -1,0 +1,22 @@
+{
+  "scenario": "tremblay_etat_dossier",
+  "description": "Référence fonctionnelle du jeu de données local validé.",
+  "recherche": {
+    "terme": "Tremblay",
+    "nombre_resultats_minimum": 3,
+    "ambiguite_a_signaler": true,
+    "client_selectionne_pour_le_test": "Tremblay"
+  },
+  "attendu": {
+    "etat": "Nouveau",
+    "nombre_interactions": 4,
+    "nombre_documents_manquants": 3,
+    "nombre_taches_ouvertes": 1,
+    "documents_manquants": [
+      "Lettre d'emploi",
+      "État civil",
+      "Montant de la dette"
+    ],
+    "prochaine_action": "Transfert des documents requis le lundi 8 juin"
+  }
+}

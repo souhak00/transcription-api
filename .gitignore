@@ -1,8 +1,14 @@
 node_modules/
+web/dist/
 .env
+.env.production
 outputs/
+.runtime/
+runtime/
+deploy/production/runtime/
 *.log
 
 backups/
+backup/*.json
 *.dump
 sauvegarde_*.zip
