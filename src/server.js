@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   AgentRequestError,
+  buildCalendarDraft,
   detectCalendarQuery,
   extractClientCodes,
   extractUniqueClientCode,
@@ -283,11 +284,12 @@ const server = http.createServer(async (request, response) => {
         AGENT_INTENTS.REMINDERS_QUERY
       ].includes(input.intent);
       const calendarMutationHelp = isCalendar && input.calendar?.mutationRequested;
+      const calendarDraft = calendarMutationHelp ? buildCalendarDraft(input) : null;
       const calendarData = isCalendar && !calendarMutationHelp
         ? await requestCalendarData(input.calendar, { representativeId: user.representantId })
         : null;
       const reply = calendarMutationHelp
-        ? "Pour créer une rencontre ou un rappel, ouvrez Agenda puis cliquez sur Ajouter. La création conversationnelle avec confirmation sera ajoutée dans une prochaine itération."
+        ? "J’ai préparé le rendez-vous dans l’Agenda. Vérifiez les renseignements, puis confirmez la création."
         : isCalendar
         ? formatCalendarReply(calendarData, {
             remindersOnly: input.intent === AGENT_INTENTS.REMINDERS_QUERY
@@ -305,7 +307,8 @@ const server = http.createServer(async (request, response) => {
           requested_fields: input.requestedFields,
           scope: input.scope,
           result_codes: resultCodes,
-          ...(calendarData ? { calendar: calendarData } : {})
+          ...(calendarData ? { calendar: calendarData } : {}),
+          ...(calendarDraft ? { calendar_draft: calendarDraft } : {})
         }
       }));
       return;

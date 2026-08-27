@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   AgentRequestError,
+  buildCalendarDraft,
   detectCalendarQuery,
   detectPortfolioQuery,
   extractClientDossier,
@@ -10,6 +11,7 @@ import {
   extractAgentReply,
   extractUniqueClientCode,
   formatClientDossierReply,
+  formatClientInteractionSummaryReply,
   formatClientDocumentsReply,
   formatClientQueryReply,
   formatClientTasksReply,
@@ -50,6 +52,28 @@ test("les demandes d’agenda et de rappels sont interprétées sans LLM", () =>
   const mutation = normalizeAgentRequest({ message: "Rappelle-moi d’appeler le client demain" });
   assert.equal(mutation.intent, "consultation_rappels");
   assert.equal(mutation.calendar.mutationRequested, true);
+});
+
+test("buildCalendarDraft prépare un rendez-vous à confirmer", () => {
+  const input = normalizeAgentRequest({
+    message: "Planifie un rendez-vous demain à 14h30",
+    context: { activeClient: "CLI-2026-KP-000010" }
+  });
+  const draft = buildCalendarDraft(input, new Date("2026-08-26T15:00:00Z"));
+
+  assert.equal(draft.clientReference, "CLI-2026-KP-000010");
+  assert.equal(draft.type, "rencontre");
+  assert.equal(draft.start, "2026-08-27T18:30:00.000Z");
+  assert.equal(draft.end, "2026-08-27T19:30:00.000Z");
+  assert.equal(draft.source, "assistant");
+});
+
+test("buildCalendarDraft accepte une heure sans minutes", () => {
+  const input = normalizeAgentRequest({ message: "Planifie un appel demain à 9h" });
+  const draft = buildCalendarDraft(input, new Date("2026-08-26T15:00:00Z"));
+
+  assert.equal(draft.type, "appel");
+  assert.equal(draft.start, "2026-08-27T13:00:00.000Z");
 });
 
 test("les périodes d’agenda suivent Toronto indépendamment du fuseau du serveur", () => {
@@ -110,6 +134,25 @@ test("normalizeAgentRequest détecte une demande d’affichage de dossier", () =
     normalizeAgentRequest({ message: "Afficher le dossier CLI-2026-KP-000010" }).intent,
     "dossier_client"
   );
+});
+
+test("normalizeAgentRequest reconnaît le résumé d’une visite dans le dossier actif", () => {
+  const input = normalizeAgentRequest({
+    message: "Résume ma dernière visite",
+    context: { activeClient: "CLI-2026-KP-000010" }
+  });
+
+  assert.equal(input.intent, "resume_interaction_client");
+  assert.equal(input.clientReference, "CLI-2026-KP-000010");
+  assert.equal(input.clarificationRequired, false);
+});
+
+test("normalizeAgentRequest demande le client pour un résumé de visite sans contexte", () => {
+  const input = normalizeAgentRequest({ message: "Fais-moi un résumé de la visite" });
+
+  assert.equal(input.intent, "resume_interaction_client");
+  assert.equal(input.clientReference, null);
+  assert.equal(input.clarificationRequired, true);
 });
 
 test("normalizeAgentRequest reconnaît un dossier individuel avec un nom en minuscules", () => {
@@ -540,6 +583,38 @@ test("formatClientDossierReply produit une réponse stable", () => {
   assert.match(reply, /Prochaine action : Aucune action planifiée/);
 });
 
+test("formatClientInteractionSummaryReply retourne la dernière interaction enregistrée", () => {
+  const reply = formatClientInteractionSummaryReply({
+    trouve: true,
+    dossier: {
+      nom_client: "Karine Pelletier",
+      code_client: "CLI-2026-KP-000010",
+      derniere_interaction: {
+        date_appel: "2026-08-20T14:30:00-04:00",
+        type_interaction: "Visite",
+        resume: "Le client souhaite refinancer et transmettra ses relevés bancaires."
+      }
+    }
+  });
+
+  assert.match(reply, /Dernière interaction pour Karine Pelletier/);
+  assert.match(reply, /Type : Visite/);
+  assert.match(reply, /souhaite refinancer/);
+});
+
+test("formatClientInteractionSummaryReply explique quand aucun résumé n’existe", () => {
+  const reply = formatClientInteractionSummaryReply({
+    trouve: true,
+    dossier: {
+      nom_client: "Karine Pelletier",
+      code_client: "CLI-2026-KP-000010",
+      derniere_interaction: null
+    }
+  });
+
+  assert.match(reply, /Aucune visite ou interaction n’est enregistrée/);
+});
+
 test("requestAgentReply route le dossier sans dépendre du choix du modèle", async () => {
   let receivedUrl;
   const reply = await requestAgentReply(
@@ -772,6 +847,27 @@ test("les informations personnelles et le projet sont consultables sans LLM", ()
     assert.equal(input.intent, "consultation_client", message);
     assert.ok(input.requestedFields.includes(field), message);
   }
+});
+
+test("la durée du statut en analyse est expliquée avec son délai cible", () => {
+  const input = normalizeAgentRequest({ message: "Depuis quand le dossier de Karine Pelletier est en analyse et le délai est-il dépassé ?" });
+  assert.equal(input.intent, "consultation_client");
+  assert.ok(input.requestedFields.includes("statut_depuis"));
+
+  const reply = formatClientQueryReply({
+    trouve: true,
+    dossier: {
+      nom_client: "Karine Pelletier",
+      code_client: "CLI-2026-KP-000010",
+      statut_dossier: "En analyse",
+      statut_depuis: "2026-08-18T10:00:00Z",
+      jours_dans_statut: 8
+    }
+  }, input.requestedFields);
+
+  assert.match(reply, /Durée dans le statut : 8 jour/);
+  assert.match(reply, /Délai cible d’analyse : 5 jours calendaires/);
+  assert.match(reply, /Délai dépassé : oui, de 3 jour/);
 });
 
 test("formatClientQueryReply formate le profil, les participants et le projet", () => {

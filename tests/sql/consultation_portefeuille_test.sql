@@ -11,18 +11,18 @@ WITH representant AS (
 ), clients_test AS (
     INSERT INTO public.clients (
         representant_id, nom_client, courriel, revenu_annuel,
-        statut_dossier, date_rappel, updated_at
+        statut_dossier, statut_depuis, date_rappel, updated_at
     )
     SELECT representant_id, 'Client Prioritaire', 'prioritaire@example.test',
-        80000, 'En analyse', current_date - 1, now()
+        80000, 'En analyse', now() - interval '7 days', current_date - 1, now()
     FROM representant
     UNION ALL
     SELECT representant_id, 'Client Revenu', 'revenu@example.test',
-        150000, 'Nouveau', current_date + 10, now() - interval '1 day'
+        150000, 'Nouveau', now(), current_date + 10, now() - interval '1 day'
     FROM representant
     UNION ALL
     SELECT representant_id, 'Client Preapprouve', 'preapprouve@example.test',
-        95000, 'Preapprouve', current_date + 5, now() - interval '2 days'
+        95000, 'Preapprouve', now(), current_date + 5, now() - interval '2 days'
     FROM representant
     RETURNING client_id, representant_id, nom_client
 )
@@ -52,7 +52,8 @@ BEGIN
         20, NULL, NULL
     );
     IF (v_resultat ->> 'nombre_clients')::integer IS DISTINCT FROM 1
-       OR v_resultat #>> '{rows,0,nom_client}' IS DISTINCT FROM 'Client Prioritaire' THEN
+       OR v_resultat #>> '{rows,0,nom_client}' IS DISTINCT FROM 'Client Prioritaire'
+       OR (v_resultat #>> '{rows,0,statut_en_retard}')::boolean IS DISTINCT FROM true THEN
         RAISE EXCEPTION 'Filtrage portefeuille invalide: %', v_resultat;
     END IF;
 
@@ -72,6 +73,16 @@ BEGIN
     );
     IF v_resultat #>> '{rows,0,nom_client}' IS DISTINCT FROM 'Client Revenu' THEN
         RAISE EXCEPTION 'Agrégation portefeuille invalide: %', v_resultat;
+    END IF;
+
+    v_resultat := crm.consulter_portefeuille(
+        '{"statut":"Nouveau"}',
+        '[{"field":"priority_score","direction":"desc"}]',
+        20, NULL, NULL
+    );
+    IF (v_resultat #>> '{rows,0,priority_score}')::integer < 10
+       OR NOT (v_resultat #> '{rows,0,priority_reasons}') ? 'Nouveau client à qualifier' THEN
+        RAISE EXCEPTION 'Priorité d accueil du nouveau client invalide: %', v_resultat;
     END IF;
 END
 $test$;

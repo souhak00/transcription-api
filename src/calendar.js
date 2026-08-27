@@ -110,7 +110,20 @@ async function callCalendarWebhook(url, payload, options = {}) {
       signal: controller.signal
     });
     if (!upstream.ok) throw new AgentRequestError("L’orchestrateur de l’agenda est indisponible.", 502);
-    return await upstream.json();
+    if (typeof upstream.text !== "function") return await upstream.json();
+
+    const rawResponse = await upstream.text();
+    if (!rawResponse.trim()) {
+      throw new AgentRequestError(
+        "L’agenda n’a pas pu traiter la demande. Vérifiez que le client appartient à votre portefeuille et que l’étape choisie est valide.",
+        422
+      );
+    }
+    try {
+      return JSON.parse(rawResponse);
+    } catch {
+      throw new AgentRequestError("L’orchestrateur de l’agenda a retourné une réponse invalide.", 502);
+    }
   } catch (error) {
     if (error instanceof AgentRequestError) throw error;
     if (error.name === "AbortError") throw new AgentRequestError("Le délai de l’agenda est dépassé.", 504);

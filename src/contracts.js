@@ -8,6 +8,7 @@ export const AGENT_INTENTS = Object.freeze({
   CLIENTS_MISSING_DOCUMENTS: "clients_documents_manquants",
   PORTFOLIO_QUERY: "consultation_portefeuille",
   CLIENT_DOSSIER: "dossier_client",
+  CLIENT_INTERACTION_SUMMARY: "resume_interaction_client",
   CLIENT_QUERY: "consultation_client",
   CLIENT_DOCUMENTS: "documents_client",
   CLIENT_TASKS: "taches_client",

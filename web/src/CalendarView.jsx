@@ -85,9 +85,10 @@ function EventCard({ event, onEdit, onOpenDossier }) {
   );
 }
 
-export default function CalendarView({ identity, onOpenDossier }) {
+export default function CalendarView({ identity, onOpenDossier, initialDraft = null }) {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [events, setEvents] = useState([]);
+  const [clientOptions, setClientOptions] = useState([]);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -133,20 +134,48 @@ export default function CalendarView({ identity, onOpenDossier }) {
 
   useEffect(() => { loadCalendar(); }, [weekStart]);
 
-  function openForm() {
-    const start = new Date(defaultStart);
+  useEffect(() => {
+    let active = true;
+    identity.apiFetch("/api/portfolio?limit=100&sort=updated_at", {
+      headers: { accept: "application/json" }
+    })
+      .then(async (response) => response.ok ? response.json() : { rows: [] })
+      .then((payload) => {
+        if (active) setClientOptions(Array.isArray(payload.rows) ? payload.rows : []);
+      })
+      .catch(() => {
+        if (active) setClientOptions([]);
+      });
+    return () => { active = false; };
+  }, [identity]);
+
+  function openForm(seed = {}) {
+    const start = seed.start ? new Date(seed.start) : new Date(defaultStart);
     const end = new Date(start.getTime() + 60 * 60_000);
     setDraft({
-      title: "", type: "rencontre", clientReference: "", stageCode: "",
-      start: localInputValue(start), end: localInputValue(end), location: "",
-      description: "", reminderEnabled: true, reminderMinutes: 30
+      title: seed.title ?? "",
+      type: seed.type ?? "rencontre",
+      clientReference: seed.clientReference ?? "",
+      stageCode: seed.stageCode ?? "",
+      start: localInputValue(start),
+      end: localInputValue(seed.end ? new Date(seed.end) : end),
+      location: seed.location ?? "",
+      description: seed.description ?? "",
+      reminderEnabled: seed.reminderEnabled ?? true,
+      reminderMinutes: seed.reminderMinutes ?? 30,
+      source: seed.source ?? "manuel"
     });
+    if (seed.start) setWeekStart(startOfWeek(start));
     setSuccess("");
     setEditingCode("");
     setFormErrors([]);
     setSubmitError("");
     setFormOpen(true);
   }
+
+  useEffect(() => {
+    if (initialDraft) openForm(initialDraft);
+  }, [initialDraft]);
 
   function openEditForm(item) {
     const firstReminder = item.rappels?.[0];
@@ -199,6 +228,25 @@ export default function CalendarView({ identity, onOpenDossier }) {
     setSaving(true);
     setSubmitError("");
     try {
+      let normalizedClientReference = draft.clientReference.trim();
+      if (draft.stageCode && normalizedClientReference) {
+        const clientResponse = await identity.apiFetch(
+          `/api/clients/${encodeURIComponent(normalizedClientReference)}/dossier`,
+          { headers: { accept: "application/json" } }
+        );
+        const clientPayload = await clientResponse.json().catch(() => ({}));
+        if (!clientResponse.ok) {
+          throw new Error(clientPayload.error || "Impossible de vérifier le client sélectionné.");
+        }
+        if (clientPayload.ambigue) {
+          throw new Error("Plusieurs clients correspondent à ce nom. Utilisez le code CLI du dossier voulu.");
+        }
+        if (!clientPayload.trouve || !clientPayload.dossier?.code_client) {
+          throw new Error(`Le client « ${normalizedClientReference} » est introuvable dans votre portefeuille. Choisissez un client existant ou retirez l’étape du dossier.`);
+        }
+        normalizedClientReference = clientPayload.dossier.code_client;
+      }
+
       const response = await identity.apiFetch(
         editingCode ? `/api/calendar/events/${encodeURIComponent(editingCode)}` : "/api/calendar/events",
         {
@@ -209,6 +257,7 @@ export default function CalendarView({ identity, onOpenDossier }) {
         },
         body: JSON.stringify({
           ...draft,
+          clientReference: normalizedClientReference,
           start: new Date(draft.start).toISOString(),
           end: draft.end ? new Date(draft.end).toISOString() : null,
           reminderMinutes: Number(draft.reminderMinutes)
@@ -243,7 +292,7 @@ export default function CalendarView({ identity, onOpenDossier }) {
           <button type="button" aria-label="Semaine précédente" onClick={() => setWeekStart(addDays(weekStart, -7))}><ChevronLeft size={17} /></button>
           <button type="button" aria-label="Semaine suivante" onClick={() => setWeekStart(addDays(weekStart, 7))}><ChevronRight size={17} /></button>
           <button type="button" onClick={loadCalendar}><RefreshCw size={16} /></button>
-          <button type="button" className="calendar-primary" onClick={openForm}><Plus size={17} /> Ajouter</button>
+          <button type="button" className="calendar-primary" onClick={() => openForm()}><Plus size={17} /> Ajouter</button>
         </div>
       </section>
 
@@ -282,6 +331,12 @@ export default function CalendarView({ identity, onOpenDossier }) {
         <div className="calendar-modal" role="dialog" aria-modal="true" aria-label={editingCode ? "Modifier un événement" : "Ajouter un événement"}>
           <form onSubmit={saveEvent} noValidate>
             <header><div><p className="eyebrow">{editingCode ? "Planification existante" : "Nouvelle planification"}</p><h3>{editingCode ? "Modifier l’événement" : "Ajouter à l’agenda"}</h3></div><button type="button" onClick={() => setFormOpen(false)}><X size={18} /></button></header>
+            {draft.source === "assistant" && (
+              <div className="calendar-draft-notice" role="status">
+                Brouillon préparé par l’assistant. Vérifiez les renseignements avant de confirmer.
+                {draft.stageCode && " L’étape actuelle du dossier a été suggérée automatiquement."}
+              </div>
+            )}
             {formErrors.length > 0 && (
               <div className="calendar-form-errors" role="alert">
                 <strong>Champs à compléter :</strong>
@@ -297,7 +352,12 @@ export default function CalendarView({ identity, onOpenDossier }) {
             <label>Titre<input aria-invalid={formErrors.includes("Titre")} maxLength="160" value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="Rencontre de préautorisation" /></label>
             <div className="calendar-form-row">
               <label>Type<select value={draft.type} onChange={(e) => setDraft({ ...draft, type: e.target.value })}><option value="rencontre">Rencontre</option><option value="appel">Appel</option><option value="suivi">Suivi</option><option value="echeance">Échéance</option><option value="rappel">Rappel</option><option value="autre">Autre</option></select></label>
-              <label>Client <span className="field-help">Requis si une étape est choisie</span><input aria-invalid={formErrors.includes("Client associé à l’étape du dossier")} value={draft.clientReference} onChange={(e) => setDraft({ ...draft, clientReference: e.target.value })} placeholder="CLI-… ou nom" /></label>
+              <label>Client <span className="field-help">Client CRM existant requis si une étape est choisie</span><input list="calendar-client-options" aria-invalid={formErrors.includes("Client associé à l’étape du dossier")} value={draft.clientReference} onChange={(e) => setDraft({ ...draft, clientReference: e.target.value })} placeholder="Choisir un client ou saisir son code CLI" /></label>
+              <datalist id="calendar-client-options">
+                {clientOptions.map((client) => (
+                  <option value={client.code_client} key={client.code_client}>{client.nom_client}</option>
+                ))}
+              </datalist>
             </div>
             <label>Étape du dossier<select value={draft.stageCode} onChange={(e) => setDraft({ ...draft, stageCode: e.target.value })}>{stageOptions.map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
             <div className="calendar-form-row"><label>Début<input aria-invalid={formErrors.includes("Date et heure de début")} type="datetime-local" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} /></label><label>Fin<input aria-invalid={formErrors.some((item) => item.includes("fin"))} type="datetime-local" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} /></label></div>

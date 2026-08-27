@@ -18,6 +18,7 @@ AS $function$
             c.code_client,
             c.nom_client,
             c.statut_dossier,
+            c.statut_depuis,
             c.revenu_annuel,
             c.date_rappel,
             c.updated_at,
@@ -29,6 +30,9 @@ AS $function$
                 + COALESCE(t.nombre_ouvertes, 0) * 5
                 + COALESCE(t.nombre_retard, 0) * 25
                 + CASE WHEN c.date_rappel <= current_date THEN 20 ELSE 0 END
+                + CASE WHEN lower(trim(COALESCE(c.statut_dossier, ''))) = 'nouveau' THEN 10 ELSE 0 END
+                + CASE WHEN lower(trim(COALESCE(c.statut_dossier, ''))) = 'en analyse'
+                    AND current_date - c.statut_depuis::date > 5 THEN 20 ELSE 0 END
             )::integer AS priority_score
         FROM public.clients c
         LEFT JOIN LATERAL (
@@ -117,6 +121,11 @@ AS $function$
                 'nom_client', t.nom_client,
                 'code_client', t.code_client,
                 'statut_dossier', t.statut_dossier,
+                'statut_depuis', t.statut_depuis,
+                'jours_dans_statut', GREATEST(0, current_date - t.statut_depuis::date),
+                'delai_cible_jours', CASE WHEN lower(trim(COALESCE(t.statut_dossier, ''))) = 'en analyse' THEN 5 END,
+                'statut_en_retard', CASE WHEN lower(trim(COALESCE(t.statut_dossier, ''))) = 'en analyse'
+                    THEN current_date - t.statut_depuis::date > 5 ELSE false END,
                 'revenu_annuel', t.revenu_annuel,
                 'date_rappel', t.date_rappel,
                 'nombre_documents_manquants', t.nombre_documents_manquants,
@@ -128,7 +137,14 @@ AS $function$
                         THEN t.nombre_taches_en_retard || ' tâche(s) en retard' END,
                     CASE WHEN t.nombre_documents_manquants > 0
                         THEN t.nombre_documents_manquants || ' document(s) manquant(s)' END,
-                    CASE WHEN t.date_rappel <= current_date THEN 'Relance échue' END
+                    CASE WHEN t.nombre_taches_ouvertes > t.nombre_taches_en_retard
+                        THEN (t.nombre_taches_ouvertes - t.nombre_taches_en_retard) || ' tâche(s) ouverte(s)' END,
+                    CASE WHEN t.date_rappel <= current_date THEN 'Relance échue' END,
+                    CASE WHEN lower(trim(COALESCE(t.statut_dossier, ''))) = 'nouveau'
+                        THEN 'Nouveau client à qualifier' END,
+                    CASE WHEN lower(trim(COALESCE(t.statut_dossier, ''))) = 'en analyse'
+                        AND current_date - t.statut_depuis::date > 5
+                        THEN 'Délai d analyse dépassé' END
                 ], NULL)
             ) ORDER BY
                 CASE WHEN p_sort #>> '{0,field}' = 'priority_score' THEN t.priority_score END DESC,

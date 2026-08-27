@@ -19,13 +19,37 @@ function normalize(value) {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
-function StatusBadge({ value }) {
-  return <span className="portfolio-status">{value || "Non défini"}</span>;
+function StatusBadge({ value, row = {} }) {
+  const days = Number(row.jours_dans_statut);
+  const tracking = Number.isFinite(days)
+    ? `Dans ce statut depuis ${days} jour(s)${row.delai_cible_jours ? `; cible ${row.delai_cible_jours} jours` : ""}`
+    : "Durée du statut non disponible";
+  return (
+    <span
+      className={`portfolio-status ${row.statut_en_retard ? "overdue" : ""}`}
+      title={tracking}
+      aria-label={`${value || "Statut non défini"}. ${tracking}`}
+    >
+      {value || "Non défini"}
+      {row.statut_en_retard && " · délai dépassé"}
+    </span>
+  );
 }
 
 function PriorityBadge({ row }) {
   const score = Number(row.priority_score ?? 0);
-  return <span className={`priority-badge ${score >= 40 ? "high" : score > 0 ? "medium" : "low"}`}>Priorité {score}</span>;
+  const reasons = Array.isArray(row.priority_reasons) && row.priority_reasons.length
+    ? row.priority_reasons.join(" · ")
+    : "Aucun élément prioritaire";
+  return (
+    <span
+      className={`priority-badge ${score >= 40 ? "high" : score > 0 ? "medium" : "low"}`}
+      title={reasons}
+      aria-label={`Priorité ${score}. ${reasons}`}
+    >
+      Priorité {score}
+    </span>
+  );
 }
 
 export default function PortfolioViews({ view, identity, onOpenDossier }) {
@@ -145,14 +169,14 @@ export default function PortfolioViews({ view, identity, onOpenDossier }) {
               <label><ArrowUpDown size={15} /> Trier<select value={sortField} onChange={(event) => setSortField(event.target.value)}><option value="priority_desc">Priorité décroissante</option><option value="name_asc">Nom A–Z</option><option value="status_asc">Statut A–Z</option><option value="documents_desc">Documents manquants</option><option value="tasks_desc">Tâches ouvertes</option></select></label>
               <label>Afficher<select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value="10">10</option><option value="25">25</option><option value="50">50</option></select></label>
             </div>
-            <div className="client-table-wrap"><table className="client-table"><thead><tr><th>Client</th><th>Statut</th><th>Documents</th><th>Tâches</th><th>Priorité</th><th /></tr></thead><tbody>{paginatedRows.map((row) => <tr key={row.code_client}><td><strong>{row.nom_client}</strong><code>{row.code_client}</code></td><td><StatusBadge value={row.statut_dossier} /></td><td>{row.nombre_documents_manquants || 0}</td><td>{row.nombre_taches_ouvertes || 0}</td><td><PriorityBadge row={row} /></td><td><button type="button" onClick={() => onOpenDossier(row.code_client)}>Ouvrir <ArrowRight size={15} /></button></td></tr>)}</tbody></table></div>
+            <div className="client-table-wrap"><table className="client-table"><thead><tr><th>Client</th><th>Statut</th><th>Documents</th><th>Tâches</th><th>Priorité</th><th /></tr></thead><tbody>{paginatedRows.map((row) => <tr key={row.code_client}><td><strong>{row.nom_client}</strong><code>{row.code_client}</code></td><td><StatusBadge value={row.statut_dossier} row={row} /></td><td>{row.nombre_documents_manquants || 0}</td><td>{row.nombre_taches_ouvertes || 0}</td><td><PriorityBadge row={row} /></td><td><button type="button" onClick={() => onOpenDossier(row.code_client)}>Ouvrir <ArrowRight size={15} /></button></td></tr>)}</tbody></table></div>
             <div className="client-pagination" aria-label="Pagination des clients">
               <span>{sortedRows.length ? (currentPage - 1) * pageSize + 1 : 0}–{Math.min(currentPage * pageSize, sortedRows.length)} sur {sortedRows.length}</span>
               <div><button type="button" aria-label="Page précédente" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={currentPage === 1}><ChevronLeft size={16} /></button><strong>Page {currentPage} sur {pageCount}</strong><button type="button" aria-label="Page suivante" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={currentPage === pageCount}><ChevronRight size={16} /></button></div>
             </div>
           </>
         ) : (
-          <div className="dossier-board">{sortedRows.map((row) => <article key={row.code_client}><div className="dossier-card-top"><FolderSearch2 size={20} /><StatusBadge value={row.statut_dossier} /></div><h3>{row.nom_client}</h3><code>{row.code_client}</code><div className="dossier-card-metrics"><span><FileWarning size={15} /> {row.nombre_documents_manquants || 0} document(s)</span><span><ListTodo size={15} /> {row.nombre_taches_ouvertes || 0} tâche(s)</span>{Number(row.nombre_taches_en_retard) > 0 && <span className="late"><AlertTriangle size={15} /> {row.nombre_taches_en_retard} en retard</span>}</div><div className="dossier-card-footer"><PriorityBadge row={row} /><button type="button" onClick={() => onOpenDossier(row.code_client)}>Consulter <ArrowRight size={15} /></button></div></article>)}</div>
+          <div className="dossier-board">{sortedRows.map((row) => <article key={row.code_client}><div className="dossier-card-top"><FolderSearch2 size={20} /><StatusBadge value={row.statut_dossier} row={row} /></div><h3>{row.nom_client}</h3><code>{row.code_client}</code><div className="dossier-card-metrics"><span><FileWarning size={15} /> {row.nombre_documents_manquants || 0} document(s)</span><span><ListTodo size={15} /> {row.nombre_taches_ouvertes || 0} tâche(s)</span>{Number(row.nombre_taches_en_retard) > 0 && <span className="late"><AlertTriangle size={15} /> {row.nombre_taches_en_retard} en retard</span>}</div><div className="dossier-card-footer"><PriorityBadge row={row} /><button type="button" onClick={() => onOpenDossier(row.code_client)}>Consulter <ArrowRight size={15} /></button></div></article>)}</div>
         )}
         {!filteredRows.length && <div className="portfolio-empty"><CheckCircle2 size={22} /> Aucun élément ne correspond à ces filtres.</div>}
       </section>

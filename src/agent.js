@@ -26,6 +26,7 @@ const PRODUCT_PATTERN = /\b(?:achat|refinanc\w*|renouvellement|pr[eé](?:approba
 const DEFERRED_DOMAIN_PATTERN = /\b(?:r[eé]trocession|commission|r[eé]mun[eé]ration|Beacon|ratios?|endettement)\b/i;
 const CALENDAR_TERM_PATTERN = /\b(?:agenda|calendrier|rendez-vous|rencontres?|disponibilit[eé]s?|rappels?|rappelle)\b/i;
 const REMINDER_TERM_PATTERN = /\b(?:rappels?|rappelle|relances?)\b/i;
+const INTERACTION_SUMMARY_PATTERN = /\b(?:r[eé]sum[eé]?|synth[eè]se)\b.*\b(?:visite|rencontre|appel|interaction)\b|\b(?:visite|rencontre|appel|interaction)\b.*\b(?:r[eé]sum[eé]?|synth[eè]se)\b/i;
 const NAME_STOP_WORDS = new Set([
   "As", "A", "Au", "Aux", "Avec", "Combien", "Comment", "Dans", "De", "Des", "Du",
   "Est", "Le", "La", "Les", "Liste", "Montre", "Où", "Peux", "Pour", "Quel", "Quelle",
@@ -34,6 +35,7 @@ const NAME_STOP_WORDS = new Set([
 
 export const CLIENT_QUERY_FIELDS = Object.freeze({
   STATUS: "statut_dossier",
+  STATUS_SINCE: "statut_depuis",
   UPDATED_AT: "updated_at",
   NEXT_ACTION: "prochaine_action",
   PHONE: "telephone",
@@ -119,6 +121,10 @@ export function detectClientQueryFields(message) {
   const add = (...values) => values.forEach((value) => {
     if (!fields.includes(value)) fields.push(value);
   });
+
+  if (/\b(?:depuis quand|combien de (?:temps|jours?)|d[eé]lai(?:s)?(?: d[eé]pass[eé]s?)?|en retard)\b/i.test(text)) {
+    add(CLIENT_QUERY_FIELDS.STATUS, CLIENT_QUERY_FIELDS.STATUS_SINCE);
+  }
 
   if (!specializedDomain && (/[eé]tat|\b(?:statut|avance|rendue?|nouvelles?)\b|\bo[uù]\s+en\b|\bsuivi\b.*\b(?:fichier|dossier|demande)\b/i.test(text))) {
     add(CLIENT_QUERY_FIELDS.STATUS, CLIENT_QUERY_FIELDS.UPDATED_AT);
@@ -308,7 +314,8 @@ function zonedMidnightIso(year, month, day, timeZone = "America/Toronto") {
 /** Interprète une période d'agenda sans déléguer les dates au modèle de langage. */
 export function detectCalendarQuery(message, now = new Date()) {
   const text = String(message ?? "");
-  if (!CALENDAR_TERM_PATTERN.test(text)) return null;
+  const plannedCall = /\b(?:planifie|ajoute|cr[eé]e)\b.*\bappel\b/i.test(text);
+  if (!CALENDAR_TERM_PATTERN.test(text) && !plannedCall) return null;
   const localDate = zonedDateParts(now);
   const start = new Date(Date.UTC(localDate.year, localDate.month, localDate.day));
   const end = new Date(start);
@@ -354,6 +361,34 @@ export function detectCalendarQuery(message, now = new Date()) {
     overdue,
     mutationRequested,
     clientReference: extractExplicitClientReference(text)
+  };
+}
+
+/** Prépare un brouillon d’agenda; la création reste soumise à la confirmation Web. */
+export function buildCalendarDraft(input, now = new Date()) {
+  if (!input?.calendar?.mutationRequested) return null;
+
+  const timeMatch = String(input.message ?? "").match(/\b(?:[àa]\s*)?(\d{1,2})\s*(?:h\s*(\d{2})?|:\s*(\d{2}))\b/i);
+  const target = new Date(input.calendar.start);
+  if (timeMatch) {
+    target.setTime(target.getTime() + Number(timeMatch[1]) * 60 * 60_000 + Number(timeMatch[2] ?? timeMatch[3] ?? 0) * 60_000);
+  } else if (input.calendar.period === "today") {
+    target.setTime(now.getTime());
+    target.setMinutes(Math.ceil(target.getMinutes() / 30) * 30, 0, 0);
+  } else {
+    target.setTime(target.getTime() + 9 * 60 * 60_000);
+  }
+
+  const clientReference = input.clientReference ?? input.calendar.clientReference ?? "";
+  return {
+    title: clientReference ? `Rendez-vous avec ${clientReference}` : "Rendez-vous client",
+    type: /\bappel\b/i.test(input.message) ? "appel" : "rencontre",
+    clientReference,
+    start: target.toISOString(),
+    end: new Date(target.getTime() + 60 * 60_000).toISOString(),
+    reminderEnabled: true,
+    reminderMinutes: 30,
+    source: "assistant"
   };
 }
 
@@ -403,6 +438,8 @@ export function normalizeAgentRequest(body = {}) {
       intent = calendar.remindersOnly
         ? AGENT_INTENTS.REMINDERS_QUERY
         : AGENT_INTENTS.CALENDAR_QUERY;
+    } else if (INTERACTION_SUMMARY_PATTERN.test(message)) {
+      intent = AGENT_INTENTS.CLIENT_INTERACTION_SUMMARY;
     } else if (isMissingDocumentsPortfolioRequest(message, explicitClientReference)) {
       intent = AGENT_INTENTS.CLIENTS_MISSING_DOCUMENTS;
     } else if (portfolio && !explicitClientReference) {
@@ -436,20 +473,30 @@ export function normalizeAgentRequest(body = {}) {
   CLIENT_CODE_PATTERN.lastIndex = 0;
   const useActiveClient = Boolean(
     activeClient
-    && (ANAPHORA_PATTERN.test(message) || GENERIC_CLIENT_REQUEST.test(message))
+    && (
+      ANAPHORA_PATTERN.test(message)
+      || GENERIC_CLIENT_REQUEST.test(message)
+      || intent === AGENT_INTENTS.CLIENT_INTERACTION_SUMMARY
+      || Boolean(calendar?.mutationRequested)
+    )
   );
   const clientReference = messageClientCode
     ?? explicitClientReference
     ?? (useActiveClient ? activeClient : null);
   const needsClient = [
     AGENT_INTENTS.CLIENT_DOSSIER,
+    AGENT_INTENTS.CLIENT_INTERACTION_SUMMARY,
     AGENT_INTENTS.CLIENT_QUERY,
     AGENT_INTENTS.CLIENT_DOCUMENTS,
     AGENT_INTENTS.CLIENT_TASKS
   ].includes(intent);
   const clarificationRequired = needsClient
     && !clientReference
-    && (GENERIC_CLIENT_REQUEST.test(message) || ANAPHORA_PATTERN.test(message));
+    && (
+      GENERIC_CLIENT_REQUEST.test(message)
+      || ANAPHORA_PATTERN.test(message)
+      || intent === AGENT_INTENTS.CLIENT_INTERACTION_SUMMARY
+    );
 
   return {
     message,
@@ -604,6 +651,37 @@ export function formatClientDossierReply(result) {
   return lines.join("\n");
 }
 
+/** Formate le résumé de la dernière interaction connue sans inventer de contenu absent. */
+export function formatClientInteractionSummaryReply(result) {
+  if (result?.ambigue) return formatClientDossierReply(result);
+  if (!result?.trouve || !result?.dossier) {
+    return "Aucun dossier client ne correspond à cette recherche.";
+  }
+
+  const dossier = result.dossier;
+  const interaction = dossier.derniere_interaction;
+  const clientLabel = `${dossier.nom_client} — ${dossier.code_client}`;
+
+  if (!interaction || typeof interaction !== "object") {
+    return `Aucune visite ou interaction n’est enregistrée pour ${clientLabel}.`;
+  }
+
+  const summary = String(interaction.resume ?? "").trim();
+  const lines = [
+    `Dernière interaction pour ${clientLabel}`,
+    `Date : ${formatDate(interaction.date_appel)}`,
+    `Type : ${interaction.type_interaction ?? "Non renseigné"}`
+  ];
+
+  if (summary) {
+    lines.push(`Résumé : ${summary}`);
+  } else {
+    lines.push("Résumé : aucun résumé n’a été enregistré pour cette interaction.");
+  }
+
+  return lines.join("\n");
+}
+
 /** Formate une réponse stable même lorsqu’aucun document n’est manquant. */
 export function formatClientDocumentsReply(result) {
   if (result?.ambigue) return formatClientDossierReply(result);
@@ -689,6 +767,23 @@ export function formatClientQueryReply(result, requestedFields = []) {
   };
 
   add(CLIENT_QUERY_FIELDS.STATUS, "Statut", dossier.statut_dossier);
+  if (fields.includes(CLIENT_QUERY_FIELDS.STATUS_SINCE)) {
+    const elapsedDays = Number.isFinite(Number(dossier.jours_dans_statut))
+      ? Number(dossier.jours_dans_statut)
+      : dossier.statut_depuis
+        ? Math.max(0, Math.floor((Date.now() - new Date(dossier.statut_depuis).getTime()) / 86_400_000))
+        : null;
+    lines.push(`Dans ce statut depuis : ${dossier.statut_depuis ? formatDate(dossier.statut_depuis) : "Non renseigné"}`);
+    lines.push(`Durée dans le statut : ${elapsedDays === null ? "Non calculable" : `${elapsedDays} jour(s)`}`);
+    if (String(dossier.statut_dossier ?? "").trim().toLowerCase() === "en analyse") {
+      lines.push("Délai cible d’analyse : 5 jours calendaires");
+      if (elapsedDays !== null) {
+        lines.push(elapsedDays > 5
+          ? `Délai dépassé : oui, de ${elapsedDays - 5} jour(s)`
+          : "Délai dépassé : non");
+      }
+    }
+  }
   if (fields.includes(CLIENT_QUERY_FIELDS.UPDATED_AT)) {
     lines.push(`Dernière mise à jour : ${formatDate(dossier.updated_at)}`);
   }
@@ -939,6 +1034,7 @@ export async function requestAgentReply(input, options = {}) {
 
   if ([
     AGENT_INTENTS.CLIENT_DOSSIER,
+    AGENT_INTENTS.CLIENT_INTERACTION_SUMMARY,
     AGENT_INTENTS.CLIENT_QUERY,
     AGENT_INTENTS.CLIENT_DOCUMENTS,
     AGENT_INTENTS.CLIENT_TASKS
@@ -953,6 +1049,9 @@ export async function requestAgentReply(input, options = {}) {
     });
     if (input.intent === AGENT_INTENTS.CLIENT_QUERY) {
       return formatClientQueryReply(dossier, input.requestedFields);
+    }
+    if (input.intent === AGENT_INTENTS.CLIENT_INTERACTION_SUMMARY) {
+      return formatClientInteractionSummaryReply(dossier);
     }
     if (input.intent === AGENT_INTENTS.CLIENT_DOCUMENTS) return formatClientDocumentsReply(dossier);
     if (input.intent === AGENT_INTENTS.CLIENT_TASKS) return formatClientTasksReply(dossier);

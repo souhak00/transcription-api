@@ -75,6 +75,22 @@ test("la consultation transmet uniquement le contexte authentifié", async () =>
   assert.equal(result.events[0].titre, "Test");
 });
 
+test("une réponse vide de l’orchestrateur produit une erreur métier explicite", async () => {
+  await assert.rejects(
+    () => createCalendarEvent({
+      title: "Rencontre client",
+      type: "rencontre",
+      start: "2026-08-27T16:00:00Z",
+      end: "2026-08-27T17:00:00Z"
+    }, {
+      representativeId: REPRESENTATIVE_ID,
+      webhookUrl: "http://n8n.test/agenda/evenements",
+      fetchImplementation: async () => ({ ok: true, text: async () => "" })
+    }),
+    /Vérifiez que le client appartient à votre portefeuille/
+  );
+});
+
 test("la création est idempotente et liée au représentant", async () => {
   let received;
   const result = await createCalendarEvent({

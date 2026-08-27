@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUp,
   Bot,
@@ -248,6 +248,7 @@ function App({ identity }) {
   const [messages, setMessages] = useState(initialMessages);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
+  const [calendarDraft, setCalendarDraft] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [error, setError] = useState("");
   const [clientReference, setClientReference] = useState("");
@@ -263,6 +264,9 @@ function App({ identity }) {
   const [saveConfirmed, setSaveConfirmed] = useState(false);
   const sessionId = useMemo(createSessionId, []);
   const inputRef = useRef(null);
+  const messageStreamRef = useRef(null);
+  const messageEndRef = useRef(null);
+  const shouldFollowMessagesRef = useRef(true);
   const dossierInputRef = useRef(null);
   const dossierRequestIdRef = useRef(0);
   const representativeName = identity.user.name || "Représentant";
@@ -276,6 +280,25 @@ function App({ identity }) {
     calendar: ["Planification", "Agenda et rappels"],
     administration: ["Sécurité de la plateforme", "Administration"]
   };
+
+  useEffect(() => {
+    if (activeView !== "assistant" || !shouldFollowMessagesRef.current) return;
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [activeView, messages, pending]);
+
+  function openAssistant() {
+    setActiveView("assistant");
+    setSidebarOpen(false);
+    shouldFollowMessagesRef.current = true;
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function trackMessageScroll() {
+    const stream = messageStreamRef.current;
+    if (!stream) return;
+    const distanceFromBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight;
+    shouldFollowMessagesRef.current = distanceFromBottom < 96;
+  }
 
   function beginDossierEdit(dossier) {
     setDossierDraft(createDossierDraft(dossier));
@@ -444,6 +467,7 @@ function App({ identity }) {
       content: message
     };
 
+    shouldFollowMessagesRef.current = true;
     setMessages((current) => [...current, userMessage]);
     setDraft("");
     setError("");
@@ -480,6 +504,15 @@ function App({ identity }) {
 
       if (Array.isArray(payload.data?.result_codes) && payload.data.result_codes.length) {
         setLastResultCodes(payload.data.result_codes);
+      }
+
+      if (payload.data?.calendar_draft) {
+        const suggestedStage = dossierResult?.dossier?.parcours_hypothecaire?.etape_courante?.code ?? "";
+        setCalendarDraft({
+          ...payload.data.calendar_draft,
+          stageCode: suggestedStage
+        });
+        setActiveView("calendar");
       }
 
       if (payload.clientReference) {
@@ -600,7 +633,13 @@ function App({ identity }) {
               <span />
               Services locaux actifs
             </div>
-            <button className="icon-button" type="button" aria-label="Rechercher">
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="Ouvrir l’assistant"
+              title="Ouvrir l’assistant"
+              onClick={openAssistant}
+            >
               <Search size={19} />
             </button>
             <div className="top-avatar" aria-label="Profil du représentant">{representativeInitials}</div>
@@ -610,7 +649,7 @@ function App({ identity }) {
         {activeView === "administration" ? (
           <AdminRepresentatives identity={identity} />
         ) : activeView === "calendar" ? (
-          <CalendarView identity={identity} onOpenDossier={(code) => {
+          <CalendarView identity={identity} initialDraft={calendarDraft} onOpenDossier={(code) => {
             setActiveView("assistant");
             loadClientDossier(code);
           }} />
@@ -658,7 +697,12 @@ function App({ identity }) {
               })}
             </div>
 
-            <div className="message-stream" aria-live="polite">
+            <div
+              className="message-stream"
+              aria-live="polite"
+              ref={messageStreamRef}
+              onScroll={trackMessageScroll}
+            >
               {messages.map((message) => (
                 <article className={`message ${message.role}`} key={message.id}>
                   <div className="message-avatar" aria-hidden="true">
@@ -683,6 +727,7 @@ function App({ identity }) {
                   </div>
                 </article>
               )}
+              <div className="message-end" ref={messageEndRef} aria-hidden="true" />
             </div>
 
             <div className="composer-wrap">
@@ -1018,8 +1063,20 @@ function App({ identity }) {
                     {journeyStages.length ? (
                       <ol className="journey-list">
                         {journeyStages.map((stage) => (
-                          <li className={`journey-stage ${stage.statut}`} key={stage.code}>
-                            <span className="journey-number">{stage.ordre}</span>
+                          <li
+                            className={`journey-stage ${stage.statut}`}
+                            key={stage.code}
+                            aria-current={journey.etape_courante?.code === stage.code ? "step" : undefined}
+                          >
+                            <span className="journey-number" aria-hidden="true">
+                              {stage.statut === "complete"
+                                ? <CheckCircle2 size={15} />
+                                : stage.statut === "en_cours"
+                                  ? <Clock3 size={14} />
+                                  : stage.statut === "bloquee"
+                                    ? <X size={14} />
+                                    : stage.ordre}
+                            </span>
                             <div>
                               <strong>{stage.titre}</strong>
                               <small>{journeyStatusLabels[stage.statut] ?? stage.statut} · {stage.responsable}</small>
