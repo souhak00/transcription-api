@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { normalizeAgentRequest } from "../../src/agent.js";
 import {
   createDictationService,
   createSerialQueue,
@@ -64,6 +65,43 @@ test("les déformations vocales observées sont corrigées dans les commandes CR
     normalizeCrmDictationTranscript("un finish les dossiers en bas"),
     "affiche-moi les dossiers en analyse"
   );
+  assert.equal(
+    normalizeCrmDictationTranscript("a six mois les dossiers en analyse"),
+    "affiche-moi les dossiers en analyse"
+  );
+  assert.equal(
+    normalizeCrmDictationTranscript("un six mois le prochain rendez-vous"),
+    "affiche-moi le prochain rendez-vous"
+  );
+  assert.equal(
+    normalizeCrmDictationTranscript("a six mois le dossier d'alice beaulieu"),
+    "affiche-moi le dossier d'alice beaulieu"
+  );
+});
+
+test("un nom dicté est rapproché uniquement d’un client suffisamment similaire", () => {
+  const clientNames = ["Benoît Tremblay", "Olivier Bergeron", "Alice Beaulieu"];
+  assert.equal(
+    normalizeCrmDictationTranscript("affiche mode dossier d'olivier berges", { clientNames }),
+    "affiche-moi dossier de Olivier Bergeron"
+  );
+  assert.equal(
+    normalizeCrmDictationTranscript("affiche-moi le dossier de Benoît Trembler", { clientNames }),
+    "affiche-moi le dossier de Benoît Tremblay"
+  );
+  assert.equal(
+    normalizeCrmDictationTranscript("affiche-moi le dossier de Paul Martin", { clientNames }),
+    "affiche-moi le dossier de Paul Martin"
+  );
+
+  const correctedRequest = normalizeAgentRequest({
+    message: normalizeCrmDictationTranscript(
+      "affiche mode dossier d'olivier berges",
+      { clientNames }
+    )
+  });
+  assert.equal(correctedRequest.intent, "dossier_client");
+  assert.equal(correctedRequest.clientReference, "Olivier Bergeron");
 });
 
 test("la normalisation ne modifie pas une phrase ordinaire hors contexte CRM", () => {

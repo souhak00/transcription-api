@@ -46,9 +46,75 @@ export function normalizeAudioContentType(value = "") {
 }
 
 /** Corrige les confusions phonétiques fréquentes uniquement dans une commande CRM. */
-export function normalizeCrmDictationTranscript(value = "") {
+function foldFrenchText(value = "") {
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function levenshteinDistance(left, right) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      const substitution = previous[rightIndex - 1]
+        + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1);
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1] + 1,
+        previous[rightIndex] + 1,
+        substitution
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length];
+}
+
+function closestClientName(spokenName, clientNames = []) {
+  const foldedSpokenName = foldFrenchText(spokenName);
+  if (foldedSpokenName.length < 4) return null;
+
+  let best = null;
+  for (const rawName of clientNames) {
+    const name = String(rawName ?? "").trim();
+    const foldedName = foldFrenchText(name);
+    if (!name || !foldedName) continue;
+    const longestLength = Math.max(foldedSpokenName.length, foldedName.length);
+    const similarity = 1 - (levenshteinDistance(foldedSpokenName, foldedName) / longestLength);
+    if (!best || similarity > best.similarity) best = { name, similarity };
+  }
+  return best?.similarity >= 0.72 ? best.name : null;
+}
+
+function correctClientReference(transcript, clientNames = []) {
+  const reference = transcript.match(
+    /\b(dossier|client|fichier)\s+(?:(?:de|du|pour)\s+|d['’])([\p{L}'’ -]{4,})\s*[?.!]*$/iu
+  );
+  if (!reference) return transcript;
+  const correctedName = closestClientName(reference[2], clientNames);
+  if (!correctedName) return transcript;
+  return `${transcript.slice(0, reference.index)}${reference[1]} de ${correctedName}`.trim();
+}
+
+export function normalizeCrmDictationTranscript(value = "", options = {}) {
   let transcript = String(value).replace(/\s+/g, " ").trim();
-  if (!/\b(?:clients?|dossiers?|fichiers?)\b/i.test(transcript)) return transcript;
+
+  transcript = transcript
+    .replace(
+      /^(?:[aà]|un)\s+six\s+mois?\s+(?=(?:(?:le|la|les|un|une)\s+)?(?:dossiers?|clients?|fichiers?|prochains?\s+rendez-vous|rendez-vous|agenda|documents?|t[âa]ches?))/i,
+      "affiche-moi "
+    )
+    .replace(
+      /^affiche\s+mo(?:de|i|is)\s+(?=(?:(?:le|la|les|un|une)\s+)?(?:dossiers?|clients?|fichiers?|prochains?\s+rendez-vous|rendez-vous|agenda))/i,
+      "affiche-moi "
+    );
+
+  if (!/\b(?:clients?|dossiers?|fichiers?)\b/i.test(transcript)) {
+    return transcript.replace(/\s+/g, " ").trim();
+  }
 
   transcript = transcript
     .replace(
@@ -61,7 +127,8 @@ export function normalizeCrmDictationTranscript(value = "") {
     .replace(/\b(?:beno[iî]t|benolt)\s+trembler\b/gi, "Benoît Tremblay")
     .replace(/\bbeno[iî]t\s+tremblay\b/gi, "Benoît Tremblay");
 
-  return transcript.replace(/\s+/g, " ").trim();
+  transcript = transcript.replace(/\s+/g, " ").trim();
+  return correctClientReference(transcript, options.clientNames);
 }
 
 export function createSerialQueue(maxPending = 3) {

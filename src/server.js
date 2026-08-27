@@ -24,7 +24,8 @@ import { normalizeDossierUpdate, requestDossierUpdate } from "./dossier-write.js
 import {
   createDictationService,
   DictationError,
-  loadDictationConfig
+  loadDictationConfig,
+  normalizeCrmDictationTranscript
 } from "./dictation.js";
 import {
   AuthenticationError,
@@ -56,6 +57,7 @@ const keycloakConfig = loadKeycloakConfig();
 const keycloakAdminConfig = loadKeycloakAdminConfig();
 const dictationConfig = loadDictationConfig();
 const transcribeDictation = createDictationService({ config: dictationConfig });
+const dictationClientNamesCache = new Map();
 const keycloakBrowserConfig = {
   url: String(process.env.KEYCLOAK_PUBLIC_URL ?? "http://localhost:8080").replace(/\/+$/, ""),
   realm: String(process.env.KEYCLOAK_REALM ?? "crm-local"),
@@ -119,6 +121,24 @@ async function requireAdministrator(request) {
     throw new AuthenticationError("Droits administrateur requis.", 403);
   }
   return identity;
+}
+
+async function getDictationClientNames(representativeId) {
+  const cached = dictationClientNamesCache.get(representativeId);
+  if (cached?.expiresAt > Date.now()) return cached.names;
+
+  const portfolio = await requestPortfolioData({
+    limit: 100,
+    sort: [{ field: "updated_at", direction: "desc" }]
+  }, { representativeId });
+  const names = [...new Set(portfolio.rows
+    .map((row) => String(row.nom_client ?? "").trim())
+    .filter(Boolean))];
+  dictationClientNamesCache.set(representativeId, {
+    names,
+    expiresAt: Date.now() + 5 * 60 * 1000
+  });
+  return names;
 }
 
 /** Sert le build React et utilise index.html comme repli pour la navigation. */
@@ -346,7 +366,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/agent/dictation") {
-      await authenticateRequest(request, keycloakConfig);
+      const user = await authenticateRequest(request, keycloakConfig);
       const declaredLength = Number(request.headers["content-length"] || 0);
       if (declaredLength > dictationConfig.maxBytes) {
         throw new DictationError("L’enregistrement audio dépasse la limite permise.", 413);
@@ -360,7 +380,16 @@ const server = http.createServer(async (request, response) => {
       } catch {
         throw new DictationError("L’enregistrement audio dépasse la limite permise.", 413);
       }
-      const transcript = await transcribeDictation(audio, request.headers["content-type"]);
+      let transcript = await transcribeDictation(audio, request.headers["content-type"]);
+      if (/\b(?:dossier|client|fichier)\b/i.test(transcript)) {
+        try {
+          transcript = normalizeCrmDictationTranscript(transcript, {
+            clientNames: await getDictationClientNames(user.representantId)
+          });
+        } catch {
+          // La dictée reste utilisable si le portefeuille est momentanément indisponible.
+        }
+      }
       sendJson(response, 200, { transcript });
       return;
     }
