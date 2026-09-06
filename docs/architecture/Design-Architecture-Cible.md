@@ -638,6 +638,35 @@ conteneur API contient encore FFmpeg, Python, Vosk et un modèle français compl
 il peut lancer un sous-processus Vosk pour chaque transcription longue. Cette
 dette doit être retirée avant de répliquer efficacement l'API.
 
+##### Pourquoi deux instances Ollama ne conviennent pas au VPS actuel
+
+Le VPS de référence possède 4 vCPU et 16 Go de mémoire. Une instance de
+`mistral-nemo` chargée sur CPU consomme environ 8 à 12 Go. Deux instances
+demanderaient donc potentiellement 16 à 24 Go uniquement pour l'inférence, sans
+compter le système d'exploitation et les autres conteneurs.
+
+| Composant | Limite ou budget actuel |
+|---|---:|
+| Ollama | 9 Go dans Docker Compose |
+| API Node.js | 4 Go |
+| PostgreSQL | 2 Go |
+| Keycloak | 2 Go |
+| n8n | 2 Go |
+| Worker Vosk | 512 Mo et 1 CPU |
+| Ubuntu, Docker et Caddy | environ 0,5 à 1 Go |
+
+Ces limites ne sont pas nécessairement consommées simultanément, mais leur
+somme dépasse déjà la mémoire physique. Une deuxième instance Ollama provoquerait
+un risque élevé de swap, d'expiration des requêtes ou d'arrêt par manque de
+mémoire. Sur quatre cœurs, deux inférences concurrentes partageraient aussi le
+même CPU et pourraient devenir deux fois plus lentes plutôt que doubler la
+capacité utile.
+
+La réplication d'un processus sur le même hôte ne protège par ailleurs pas
+contre la perte du VPS. Le premier levier doit donc être la réduction des appels,
+la mise en file, l'augmentation verticale ou le déplacement vers un hôte privé
+plus adapté.
+
 ##### Propriétés à préserver
 
 - aucun service externe d'IA ou de transcription n'est appelé à l'exécution;
@@ -703,6 +732,38 @@ flowchart LR
 Dans cette cible, l'API ne contient plus les moteurs lourds. Elle authentifie,
 valide, crée un travail ou choisit un worker, puis normalise la réponse. FFmpeg,
 Vosk et les modèles résident exclusivement dans les images de workers.
+
+##### Contrat interne des workers
+
+Tous les workers de transcription doivent offrir un contrat versionné et une
+surface réseau minimale :
+
+```text
+GET  /health     processus en cours d'exécution
+GET  /ready      modèle chargé et capacité d'accepter un travail
+GET  /metrics    compteurs, durées, erreurs et occupation
+POST /transcribe traitement authentifié d'un média
+```
+
+Une demande interne de référence contient :
+
+```json
+{
+  "schema_version": "1.0",
+  "request_id": "identifiant-technique",
+  "language": "fr-CA",
+  "media_reference": "référence privée ou contenu autorisé",
+  "options": {
+    "max_duration_seconds": 35
+  }
+}
+```
+
+Le point `/ready` ne doit répondre positivement qu'après le chargement du modèle
+et la vérification de FFmpeg. `/metrics` expose au minimum le travail actif, les
+réussites, échecs et refus, ainsi que les durées de conversion et de
+reconnaissance. Aucune métrique ou réponse de santé ne doit contenir l'audio ou
+sa transcription.
 
 ##### Réplication de la dictée interactive
 
@@ -786,6 +847,18 @@ provisionnement, puis les appels d'inférence restent internes. Si les nœuds so
 sur des hôtes distincts, TLS mutuel ou une authentification de service forte doit
 remplacer la confiance implicite du réseau Docker local.
 
+Trois options d'hébergement sont possibles :
+
+| Option | Description | Avantage | Limite |
+|---|---|---|---|
+| A — VPS plus puissant | Porter le serveur applicatif à au moins 32 Go et davantage de CPU, avec une seule instance Ollama au départ. | Changement opérationnel simple. | Le VPS reste un point unique de défaillance. |
+| B — Hôte IA privé dédié | Déplacer Ollama vers une machine physique, un serveur GPU local ou un deuxième VPS relié par VPN privé. | Libère la RAM du CRM et isole la charge IA. | Ajoute réseau privé, supervision et sécurité interhôtes. |
+| C — Pool IA privé | Déployer plusieurs nœuds derrière une passerelle qui connaît modèles, santé, mémoire et files. | Capacité et tolérance aux pannes supérieures. | Complexité justifiée seulement par des SLO et une charge mesurée. |
+
+L'option B est la cible privilégiée lorsque le VPS actuel ne respecte plus les
+SLO. L'option A convient comme étape transitoire. L'option C ne doit être engagée
+qu'après saturation persistante d'un premier hôte IA dédié.
+
 ##### Calcul initial du nombre de workers
 
 Le besoin de concurrence peut être estimé par :
@@ -855,6 +928,32 @@ la tendance de la file.
    ligne pour un nœud supplémentaire;
 10. déplacer Ollama ou ajouter des workers uniquement lorsque les seuils
     précédents restent dépassés.
+
+##### Modifications attendues dans le code et le déploiement
+
+| Artefact | Modification cible |
+|---|---|
+| `Dockerfile` | Retirer FFmpeg, Python, Vosk et le modèle de l'image API après migration de tous les flux. |
+| `deploy/dictation/Containerfile` | Installer FFmpeg, accepter les formats audio autorisés et effectuer la conversion dans le worker. |
+| `scripts/vosk_dictation_worker.py` | Ajouter contrat versionné, `/ready`, `/metrics`, occupation, arrêt gracieux et traitement sécurisé des temporaires. |
+| `src/dictation.js` | Envoyer le média original, gérer une liste de workers, répartir selon la charge, appliquer backpressure, délais et disjoncteur. |
+| `src/transcribe.js` | Transformer l'orchestration locale en client de la file de travaux longs. |
+| `src/localTranscriber.js` | Déplacer son exécution dans l'image du worker long, puis le retirer de l'API. |
+| `src/server.js` | Retourner `202 Accepted`, exposer le suivi des travaux et séparer les contrôles de vivacité et disponibilité. |
+| `deploy/production/compose.yml` | Déclarer le pool Vosk, les workers longs, leurs limites, les contrôles de santé et la passerelle IA privée. |
+| Migrations PostgreSQL | Ajouter `travaux_asynchrones`, verrous, tentatives, idempotence, progression, erreurs nettoyées et politiques RLS. |
+| Workflows n8n | Remplacer les appels directs par une URL de passerelle IA configurable et conserver les branches déterministes sans LLM. |
+| Tests | Ajouter tests de contrat, charge, reprise après arrêt, saturation, idempotence et perte d'un worker. |
+
+Une configuration transitoire peut remplacer l'unique
+`DICTATION_WORKER_URL` par :
+
+```text
+DICTATION_WORKER_URLS=http://dictation-worker-1:2701,http://dictation-worker-2:2701
+```
+
+Cette liste ne dispense pas de mesurer la disponibilité et la charge de chaque
+worker. Elle constitue seulement le mécanisme de découverte initial du pool.
 
 La priorité immédiate n'est donc pas de dupliquer Ollama. Elle est de terminer
 la séparation du pipeline média, de mesurer chaque étape et de rendre les travaux
