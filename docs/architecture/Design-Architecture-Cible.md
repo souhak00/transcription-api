@@ -432,6 +432,172 @@ React et l'API constituent un monolithe modulaire. Keycloak, n8n, PostgreSQL,
 Ollama et Vosk sont des services spécialisés séparés. Cette architecture garde
 un déploiement simple tout en isolant les charges importantes.
 
+### Décision architecturale — monolithe modulaire ou services
+
+La solution n'est pas un monolithe pur. Elle adopte une architecture hybride :
+le noyau métier CRM demeure un monolithe modulaire, tandis que les capacités
+spécialisées ou fortement consommatrices de ressources sont séparées en
+services.
+
+```mermaid
+flowchart LR
+    ui["Application React"]
+
+    subgraph core["Noyau CRM — monolithe modulaire Node.js"]
+        identity["Autorisation"]
+        clients["Clients"]
+        dossiers["Dossiers et participants"]
+        journey["Parcours hypothécaire"]
+        calendar["Agenda"]
+        assistant["Assistant"]
+        administration["Administration"]
+    end
+
+    postgres[("PostgreSQL\nTransactions, fonctions crm.* et RLS")]
+    keycloak["Keycloak\nIdentité"]
+    n8n["n8n\nOrchestration"]
+    ollama["Ollama\nIA locale"]
+    vosk["Worker Vosk\nDictée locale"]
+    ocr["Worker OCR cible\nTraitement asynchrone"]
+
+    ui --> core
+    core --> postgres
+    core --> keycloak
+    core --> n8n
+    n8n --> ollama
+    core --> vosk
+    core -.-> ocr
+```
+
+#### Pourquoi le noyau métier reste regroupé
+
+1. **Déploiement sur un VPS unique.** Découper le noyau en plusieurs
+   microservices sur le même VPS n'améliorerait pas la disponibilité : la perte
+   de l'hôte arrêterait toujours l'ensemble de la plateforme. Cette séparation
+   multiplierait plutôt les conteneurs, connexions, secrets, journaux et appels
+   réseau internes.
+2. **Cohérence transactionnelle.** Clients, dossiers, participants, parcours,
+   documents, tâches et agenda sont fortement liés. PostgreSQL peut actuellement
+   valider et modifier ces données dans une transaction cohérente. Plusieurs
+   services propriétaires de bases distinctes imposeraient des transactions
+   distribuées, des compensations et une cohérence éventuelle.
+3. **Isolation des représentants.** L'API valide le JWT Keycloak, établit le
+   `representant_id` et PostgreSQL applique la RLS. Multiplier les services
+   métier multiplierait aussi les frontières devant propager et valider cette
+   identité, donc les risques d'erreur d'autorisation.
+4. **Taille de l'équipe et fréquence des changements.** Une application
+   déployable en une unité réduit les contrats interservices, les versions
+   incompatibles et les diagnostics distribués. Les microservices deviennent
+   surtout avantageux lorsque plusieurs équipes autonomes possèdent des domaines
+   et cycles de livraison distincts.
+5. **Charge actuelle.** Aucun domaine transactionnel du CRM ne nécessite encore
+   une mise à l'échelle indépendante. La séparation doit répondre à une mesure
+   de charge, de disponibilité ou d'organisation, et non seulement anticiper un
+   besoin hypothétique.
+6. **Budget de ressources.** Ollama peut consommer la majorité de la mémoire du
+   VPS. Plusieurs processus applicatifs et infrastructures distribuées réduiraient
+   inutilement la capacité disponible pour les traitements locaux d'IA.
+
+#### Pourquoi certains composants sont déjà des services
+
+| Service | Justification de la séparation |
+|---|---|
+| Keycloak | Identité, sessions, protocoles OIDC et cycle de sécurité spécialisés. |
+| PostgreSQL | Autorité transactionnelle, persistance, contraintes et RLS. |
+| n8n | Orchestration et intégrations modifiables indépendamment du noyau. |
+| Ollama | Profil mémoire élevé et cycle d'exécution propre à l'IA locale. |
+| Worker Vosk | Charge CPU contrôlée, modèle chargé une fois et file séquentielle. |
+| Worker OCR cible | Traitement long, asynchrone, reprenable et isolable de l'API. |
+
+La frontière de service est ainsi créée lorsqu'un composant possède au moins
+une responsabilité, un profil de ressources, un mode de défaillance ou un cycle
+de vie nettement différent du noyau CRM.
+
+#### Comparaison pour la solution actuelle
+
+| Critère | Monolithe modulaire | Microservices métier |
+|---|---|---|
+| Déploiement | Un build applicatif coordonné | Plusieurs images, versions et déploiements |
+| Transactions | Transactions PostgreSQL locales | Coordination, outbox et compensations |
+| Performance | Appels internes rapides | Appels réseau et sérialisation |
+| Ressources | Faible surcharge d'exploitation | Processus, mémoire et connexions multipliés |
+| Sécurité | Une façade principale et RLS centralisée | Chaque service doit propager l'identité correctement |
+| Diagnostic | Flux direct et journaux limités | Traçage distribué obligatoire |
+| Mise à l'échelle | API répliquée comme un ensemble | Domaine répliqué indépendamment |
+| Autonomie des équipes | Plus faible | Forte lorsque les équipes sont distinctes |
+| Tolérance aux pannes | Limitée par le VPS unique | Réelle seulement avec plusieurs hôtes et données résilientes |
+
+#### Règles de modularité du noyau
+
+Le noyau doit rester extractible plutôt que devenir un monolithe fortement
+couplé. Les modules internes recommandés sont :
+
+```text
+API Node.js
+├── identité et autorisation
+├── représentants et administration
+├── clients
+├── dossiers et participants
+├── parcours hypothécaire
+├── agenda et rappels
+├── assistant
+├── documents
+└── traitements asynchrones
+```
+
+Chaque module doit posséder :
+
+- ses routes et validations d'entrée;
+- un service applicatif clairement identifié;
+- des contrats JSON versionnés;
+- ses tests unitaires et contractuels;
+- des fonctions SQL `crm.*` dédiées;
+- aucune lecture directe des tables par le navigateur ou Ollama;
+- aucune dépendance non contrôlée vers les détails internes d'un autre module.
+
+Ces règles permettent d'extraire ultérieurement un module sans réécrire
+l'ensemble de l'application.
+
+#### Ordre recommandé d'extraction des services
+
+1. **OCR et antivirus.** Extraction prioritaire parce que le traitement est
+   lourd, long, asynchrone et doit survivre aux redémarrages.
+2. **Notifications et courriels.** Bon candidat pour une file durable, des
+   reprises, une limitation par fournisseur et un historique d'envoi.
+3. **Gestion documentaire.** À extraire lorsque le volume de fichiers, la
+   rétention, le chiffrement et les versions ont leur propre cycle de vie.
+4. **IA et transcription.** Déjà largement séparées; les workers pourront être
+   répliqués indépendamment selon les mesures de charge.
+5. **Agenda et synchronisations externes.** À considérer lorsque plusieurs
+   fournisseurs de calendriers et des synchronisations bidirectionnelles seront
+   implantés.
+
+Les clients, dossiers, participants, parcours et règles hypothécaires devraient
+rester ensemble tant qu'ils forment le même noyau transactionnel.
+
+#### Conditions justifiant un nouveau service
+
+Un module ne doit être extrait que si au moins un signal mesurable apparaît :
+
+- plusieurs équipes doivent le déployer indépendamment;
+- sa charge CPU, mémoire ou stockage diffère fortement du noyau;
+- il nécessite un niveau de disponibilité distinct;
+- sa panne doit être isolée du reste du CRM;
+- son rythme de livraison rend les déploiements du noyau trop risqués;
+- son volume nécessite une mise à l'échelle autonome;
+- son contrat et son propriétaire de données sont stables;
+- l'observabilité, l'idempotence, les sauvegardes et les files durables sont
+  déjà disponibles.
+
+#### Décision retenue
+
+La cible n'est donc ni un monolithe permanent ni une transformation immédiate
+en microservices. La décision est de conserver un noyau CRM transactionnel et
+modulaire, puis d'extraire progressivement les charges lourdes, asynchrones ou
+spécialisées lorsque des critères mesurables le justifient. Cette trajectoire
+préserve la simplicité actuelle sans empêcher une architecture par services à
+plus grande échelle.
+
 ## Architecture événementielle — EDA
 
 **Statut : Partiel**
