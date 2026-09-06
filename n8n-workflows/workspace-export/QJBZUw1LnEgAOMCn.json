@@ -1,0 +1,1917 @@
+{
+  "updatedAt": "2026-07-29T01:38:11.731Z",
+  "createdAt": "2026-07-15T12:40:03.283Z",
+  "id": "QJBZUw1LnEgAOMCn",
+  "name": "Transcription_Local_Batch_Google_Drive",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3360,
+        560
+      ],
+      "id": "64033e81-7cfb-4ddb-8b50-c576a2b2a9ca",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"model\": \"mistral-nemo\",\n  \"stream\": false,\n  \"prompt\": \"Resume en une phrase: Cette reunion porte sur la creation d'un workflow n8n local avec transcription et synthese.\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2544,
+        -144
+      ],
+      "id": "6b47aeab-c884-42a7-a91a-bb6f9050fe70",
+      "name": "Ollama - Test synthese"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "https://drive.google.com/file/d/11LTEbKqIOSb6GJdScPb9GgAxOVjHM8fX/view?usp=drive_link",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -2208,
+        -128
+      ],
+      "id": "969af420-8a47-4ad4-bea9-f6c9dfd7a9fa",
+      "name": "Download file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "uggjWDIEFlD0KQgw",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3000/transcribe/upload",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "language",
+              "value": "fr"
+            },
+            {
+              "parameterType": "formBinaryData",
+              "name": "=file",
+              "inputDataFieldName": "data"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 1800000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2048,
+        752
+      ],
+      "id": "56f76d5c-7a6a-4fd4-8fcb-da504eb0643b",
+      "name": "API - Transcription"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "contentType": "=json",
+        "specifyBody": "json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={{\n{\n  \"model\": \"mistral-nemo\",\n  \"stream\": false,\n  \"prompt\":\n\"Tu es un assistant spécialisé en courtage hypothécaire au Québec/Canada.\\n\\n\" +\n\"À partir de la transcription suivante, génère une fiche client hypothécaire structurée.\\n\\n\" +\n\"Règles importantes :\\n\" +\n\"- N’invente aucune information.\\n\" +\n\"- Si une information est absente, écris : Non mentionné.\\n\" +\n\"- Si une information est incertaine, écris : À valider.\\n\" +\n\"- Garde les montants, dates, noms et nombres exactement comme compris dans la transcription.\\n\" +\n\"- Utilise un style professionnel, clair et concis.\\n\\n\" +\n\"Sections attendues :\\n\" +\n\"1. Informations client\\n\" +\n\"2. Situation d’emploi\\n\" +\n\"3. Type de transaction\\n\" +\n\"4. Prix d’achat\\n\" +\n\"5. Montant de financement\\n\" +\n\"6. Mise de fonds\\n\" +\n\"7. Provenance de la mise de fonds\\n\" +\n\"8. Informations fiscales pertinentes\\n\" +\n\"9. Points à valider\\n\" +\n\"10. Prochaines actions\\n\\n\" +\n\"Transcription :\\n\" +\n$json.transcript\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1744,
+        768
+      ],
+      "id": "9107c16a-59cb-4bb5-bcc4-383b28a44572",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "=transcript",
+        "binaryPropertyName": "=data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1760,
+        560
+      ],
+      "id": "71f00376-f2fc-4355-933c-e89e7c1055fc",
+      "name": "Convert Transcription Originale"
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "response",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        -1536,
+        768
+      ],
+      "id": "09cb5a84-8806-4cab-b79c-17eba47e816b",
+      "name": "Transcription AI Convert to File"
+    },
+    {
+      "parameters": {
+        "name": "={{ \"transcription-originale-\" + $now.toFormat(\"yyyy-MM-dd-HH-mm\") + \".txt\" }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1JHtcm7S9rwRaFwipJxKcUM7OlvE8xLyE",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -1312,
+        560
+      ],
+      "id": "393d951f-44c5-4d09-9ced-995ac7428b8d",
+      "name": "Transcription Original",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "uggjWDIEFlD0KQgw",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "=={{ \"synthese-ai-\" + $now.toFormat(\"yyyy-MM-dd-HH-mm\") + \".txt\" }}",
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1NDSjZW0ozmIX836g1cF2GZoPpT0__oqA",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -1296,
+        768
+      ],
+      "id": "f72e6f87-8605-4155-aaa3-38b80df591ec",
+      "name": "Transcription AI",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "uggjWDIEFlD0KQgw",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "soussouhakim@gmail.com",
+        "subject": "={{ \"Synthese IA - appel hypothécaire - \" + $now.toFormat(\"yyyy-MM-dd HH:mm\") }}",
+        "emailType": "text",
+        "message": "={{\n\"Bonjour,\\n\\n\" +\n\"Une nouvelle synthèse d'appel hypothécaire a été générée automatiquement.\\n\\n\" +\n\"DATE DE TRAITEMENT\\n\" +\n\"------------------\\n\" +\n$now.toFormat(\"yyyy-MM-dd HH:mm\") + \"\\n\\n\" +\n\"SYNTHÈSE IA\\n\" +\n\"-----------\\n\" +\n$node[\"HTTP Request\"].json[\"response\"] + \"\\n\\n\" +\n\"Cordialement,\\n\" +\n\"Workflow n8n - Transcription locale\"\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -1264,
+        976
+      ],
+      "id": "d4552ecb-dc3b-4c9c-af51-34fab6296f77",
+      "name": "Send a message",
+      "webhookId": "b982ac6b-deed-40be-957c-c970a318ea9b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "EQxfc8zYREsSP7tn",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"model\": \"mistral-nemo:latest\",\n  \"stream\": false,\n  \"format\": \"json\",\n  \"prompt\":\n    \"Tu es un assistant specialise en courtage hypothecaire au Quebec/Canada.\\n\\n\" +\n    \"A partir de la transcription suivante, extrais les informations client au format JSON strict.\\n\\n\" +\n    \"Regles importantes:\\n\" +\n    \"- N'invente aucune information.\\n\" +\n    \"- Si une information est absente, utilise null.\\n\" +\n    \"- Si une information est incertaine, utilise \\\"A valider\\\".\\n\" +\n    \"- Garde les montants, dates, noms et nombres exactement comme compris dans la transcription.\\n\" +\n    \"- Retourne uniquement un JSON valide, sans Markdown et sans texte autour.\\n\\n\" +\n    \"Structure JSON obligatoire:\\n\" +\n    \"{\\n\" +\n    \"  \\\"nom_client\\\": null,\\n\" +\n    \"  \\\"telephone\\\": null,\\n\" +\n    \"  \\\"courriel\\\": null,\\n\" +\n    \"  \\\"type_emploi\\\": null,\\n\" +\n    \"  \\\"employeur\\\": null,\\n\" +\n    \"  \\\"revenu_annuel\\\": null,\\n\" +\n    \"  \\\"revenu_conjoint\\\": null,\\n\" +\n    \"  \\\"type_transaction\\\": null,\\n\" +\n    \"  \\\"prix_achat\\\": null,\\n\" +\n    \"  \\\"valeur_propriete\\\": null,\\n\" +\n    \"  \\\"solde_hypothecaire\\\": null,\\n\" +\n    \"  \\\"montant_financement\\\": null,\\n\" +\n    \"  \\\"mise_de_fonds\\\": null,\\n\" +\n    \"  \\\"provenance_mise_de_fonds\\\": null,\\n\" +\n    \"  \\\"dettes_totales\\\": null,\\n\" +\n    \"  \\\"objectif\\\": null,\\n\" +\n    \"  \\\"date_rappel\\\": null,\\n\" +\n    \"  \\\"informations_fiscales\\\": null,\\n\" +\n    \"  \\\"documents_requis\\\": [],\\n\" +\n    \"  \\\"points_a_valider\\\": [],\\n\" +\n    \"  \\\"prochaines_actions\\\": [],\\n\" +\n    \"  \\\"niveau_confiance\\\": null,\\n\" +\n    \"  \\\"resume\\\": null\\n\" +\n    \"}\\n\\n\" +\n    \"Sections metier a couvrir dans le JSON:\\n\" +\n    \"1. Informations client -> nom_client, telephone, courriel\\n\" +\n    \"2. Situation d'emploi -> type_emploi, employeur, revenu_annuel, revenu_conjoint\\n\" +\n    \"3. Type de transaction -> type_transaction, objectif\\n\" +\n    \"4. Prix d'achat -> prix_achat\\n\" +\n    \"5. Montant de financement -> montant_financement\\n\" +\n    \"6. Mise de fonds -> mise_de_fonds\\n\" +\n    \"7. Provenance de la mise de fonds -> provenance_mise_de_fonds\\n\" +\n    \"8. Informations fiscales pertinentes -> informations_fiscales\\n\" +\n    \"9. Points a valider -> points_a_valider\\n\" +\n    \"10. Prochaines actions -> prochaines_actions\\n\\n\" +\n    \"Transcription:\\n\" +\n    $json.transcript\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1744,
+        352
+      ],
+      "id": "0b2c4a1a-4c8d-4001-a582-630dae4743b3",
+      "name": "Ollama - Extraction JSON client"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Recupere la reponse directe d'Ollama quand stream=false.\nlet fullResponse = $json.response;\n\n// Si la reponse directe est absente, on verifie si Ollama a retourne un flux dans data.\nconst rawStream = $json.data;\n\n// Si response est absent mais data existe, on reconstruit la reponse depuis le streaming.\nif (!fullResponse && rawStream) {\n  // Decoupe le flux en lignes JSON.\n  const lines = rawStream\n    .split(\"\\n\")\n    .filter(line => line.trim() !== \"\");\n\n  // Initialise le texte reconstruit.\n  fullResponse = \"\";\n\n  // Parcourt chaque morceau retourne par Ollama.\n  for (const line of lines) {\n    // Convertit la ligne JSON en objet JavaScript.\n    const chunk = JSON.parse(line);\n\n    // Ajoute le morceau de reponse au texte final.\n    fullResponse += chunk.response || \"\";\n  }\n}\n\n// Si aucune reponse exploitable n'existe, on arrete le noeud.\nif (!fullResponse) {\n  throw new Error(\"Aucune reponse Ollama trouvee dans response ou data.\");\n}\n\n// Nettoie le texte final.\nfullResponse = fullResponse.trim();\n\n// Declare une variable pour le JSON client.\nlet parsed;\n\n// Convertit le texte JSON en objet JavaScript.\ntry {\n  parsed = JSON.parse(fullResponse);\n} catch (error) {\n  throw new Error(\n    \"Impossible de parser le JSON client: \" +\n    error.message +\n    \"\\nContenu recu: \" +\n    fullResponse\n  );\n}\n\n// Retourne un item n8n propre avec les champs client.\nreturn [\n  {\n    json: {\n      nom_client: parsed.nom_client ?? null,\n      telephone: parsed.telephone ?? null,\n      courriel: parsed.courriel ?? null,\n      type_emploi: parsed.type_emploi ?? null,\n      employeur: parsed.employeur ?? null,\n      revenu_annuel: parsed.revenu_annuel ?? null,\n      revenu_conjoint: parsed.revenu_conjoint ?? null,\n      type_transaction: parsed.type_transaction ?? null,\n      prix_achat: parsed.prix_achat ?? null,\n      valeur_propriete: parsed.valeur_propriete ?? null,\n      solde_hypothecaire: parsed.solde_hypothecaire ?? null,\n      montant_financement: parsed.montant_financement ?? null,\n      mise_de_fonds: parsed.mise_de_fonds ?? null,\n      provenance_mise_de_fonds: parsed.provenance_mise_de_fonds ?? null,\n      dettes_totales: parsed.dettes_totales ?? null,\n      objectif: parsed.objectif ?? null,\n      date_rappel: parsed.date_rappel ?? null,\n      informations_fiscales: parsed.informations_fiscales ?? null,\n      documents_requis: Array.isArray(parsed.documents_requis) ? parsed.documents_requis.join(\", \") : parsed.documents_requis ?? null,\n      points_a_valider: Array.isArray(parsed.points_a_valider) ? parsed.points_a_valider.join(\", \") : parsed.points_a_valider ?? null,\n      prochaines_actions: Array.isArray(parsed.prochaines_actions) ? parsed.prochaines_actions.join(\", \") : parsed.prochaines_actions ?? null,\n      niveau_confiance: parsed.niveau_confiance ?? null,\n      resume: parsed.resume ?? null\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1328,
+        352
+      ],
+      "id": "cbaa72c8-1af9-4fa8-8287-5146510c6917",
+      "name": "Parse JSON client"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "'1So7Z5150HLCN9leZULOLLu8deuPq-0_L' in parents and trashed = false",
+        "filter": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -3152,
+        560
+      ],
+      "id": "0442bf89-e2e5-428f-8fdb-7448f0af9429",
+      "name": " Chercher fichiers a traiter",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "uggjWDIEFlD0KQgw",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2944,
+        560
+      ],
+      "id": "a997dc47-b579-4831-bfc6-db129d4093e2",
+      "name": "Boucle fichiers"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -2560,
+        720
+      ],
+      "id": "517d0690-2559-4507-b2ed-42908a09aa6d",
+      "name": "Download file1",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "uggjWDIEFlD0KQgw",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.fileIdOriginal }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "value": "My Drive",
+          "mode": "list",
+          "cachedResultName": "My Drive",
+          "cachedResultUrl": "https://drive.google.com/drive/my-drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1N9dTUGllSPhdcCcs85i0ypbOTAosjCeV",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        -2064,
+        1328
+      ],
+      "id": "af61295a-8534-4221-8352-f446d4da9f17",
+      "name": "Move file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "uggjWDIEFlD0KQgw",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d6ca4ad9-9cf5-4159-8bdb-602225143ef6",
+              "name": "Garder infos fichier original",
+              "value": "",
+              "type": "string"
+            },
+            {
+              "id": "23da0e30-4080-423c-9641-45ae88e502d2",
+              "name": "fileIdOriginal",
+              "value": "={{ $(\"Boucle fichiers\").item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "8ab9cda7-80bb-4287-b2c6-218f323a51c5",
+              "name": "fileNameOriginal",
+              "value": "={{ $(\"Boucle fichiers\").item.json.name }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2352,
+        720
+      ],
+      "id": "6a8e42b0-ccbf-44c7-b361-959f87d418d0",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -2112,
+        1136
+      ],
+      "id": "f220e31d-5492-47a6-adfc-7b68dbab9548",
+      "name": "Recuperer ID fichier original"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Recupere la fiche client structuree produite par le noeud Parse JSON client.\nconst client = $json;\n\n// Recupere les informations du fichier original conservees avant l'appel API.\nconst fichier = $(\"Edit Fields\").item.json;\n\n// Recupere la reponse de l'API de transcription.\nconst transcription = $(\"API - Transcription\").item.json;\n\n// Genere une date de traitement normalisee en ISO 8601.\nconst processedAt = new Date().toISOString();\n\n// Construit un objet metadata unique pour le fichier courant.\nconst metadata = {\n  // Version du schema de metadonnees pour faciliter les evolutions futures.\n  schema_version: \"1.0\",\n\n  // Date et heure de creation des metadonnees.\n  processed_at: processedAt,\n\n  // Source du traitement.\n  source: {\n    // Nom du fichier original dans Google Drive.\n    file_name_original: fichier.fileNameOriginal ?? null,\n\n    // Identifiant Google Drive du fichier original.\n    file_id_original: fichier.fileIdOriginal ?? null,\n\n    // Type MIME du fichier si disponible.\n    mime_type: fichier.mimeType ?? fichier.mime_type ?? null\n  },\n\n  // Informations techniques retournees par l'API de transcription.\n  transcription: {\n    // Dossier de sortie local dans le conteneur API.\n    output_dir: transcription.outputDir ?? null,\n\n    // Chemin local du fichier transcript.txt.\n    transcript_path: transcription.transcriptPath ?? null,\n\n    // Chemin local du JSON de transcription detaille.\n    json_path: transcription.jsonPath ?? null,\n\n    // Chemin local du metadata.json produit par l'API.\n    metadata_path: transcription.metadataPath ?? null,\n\n    // Longueur approximative du texte transcrit.\n    transcript_length: transcription.transcript ? transcription.transcript.length : 0\n  },\n\n  // Donnees client extraites par Ollama et normalisees par Parse JSON client.\n  client: {\n    nom_client: client.nom_client ?? null,\n    prenom_client: client.prenom_client ?? null,\n    date_naissance: client.date_naissance ?? null,\n    telephone: client.telephone ?? null,\n    courriel: client.courriel ?? null,\n    type_emploi: client.type_emploi ?? null,\n    employeur: client.employeur ?? null,\n    revenu_annuel: client.revenu_annuel ?? null,\n    revenu_conjoint: client.revenu_conjoint ?? null,\n    type_transaction: client.type_transaction ?? null,\n    prix_achat: client.prix_achat ?? null,\n    valeur_propriete: client.valeur_propriete ?? null,\n    solde_hypothecaire: client.solde_hypothecaire ?? null,\n    montant_financement: client.montant_financement ?? null,\n    mise_de_fonds: client.mise_de_fonds ?? null,\n    provenance_mise_de_fonds: client.provenance_mise_de_fonds ?? null,\n    dettes_totales: client.dettes_totales ?? null,\n    objectif: client.objectif ?? null,\n    date_rappel: client.date_rappel ?? null,\n    informations_fiscales: client.informations_fiscales ?? null,\n    niveau_confiance: client.niveau_confiance ?? null,\n    resume: client.resume ?? null\n  },\n\n  // Listes operationnelles utilisees par le conseiller.\n  suivi: {\n    documents_requis: client.documents_requis ?? null,\n    points_a_valider: client.points_a_valider ?? null,\n    prochaines_actions: client.prochaines_actions ?? null\n  },\n\n  // Informations de securite et d'isolation a renseigner quand la branche CRM est active.\n  access_context: {\n    representant_id: client.representant_id ?? null,\n    client_id: client.client_id ?? null,\n    role_traitement: \"workflow_n8n\"\n  },\n\n  // Payload structure destine a alimenter la base PostgreSQL.\n  database_payload: {\n    // Donnees principales pour la table clients.\n    client_record: {\n      representant_id: client.representant_id ?? null,\n      nom_client: client.nom_client ?? null,\n      telephone: client.telephone ?? null,\n      courriel: client.courriel ?? null,\n      type_emploi: client.type_emploi ?? null,\n      employeur: client.employeur ?? null,\n      revenu_annuel: client.revenu_annuel ?? null,\n      revenu_conjoint: client.revenu_conjoint ?? null,\n      type_transaction: client.type_transaction ?? null,\n      prix_achat: client.prix_achat ?? null,\n      valeur_propriete: client.valeur_propriete ?? null,\n      solde_hypothecaire: client.solde_hypothecaire ?? null,\n      montant_financement: client.montant_financement ?? null,\n      mise_de_fonds: client.mise_de_fonds ?? null,\n      provenance_mise_de_fonds: client.provenance_mise_de_fonds ?? null,\n      dettes_totales: client.dettes_totales ?? null,\n      objectif: client.objectif ?? null,\n      date_rappel: client.date_rappel ?? null,\n      informations_fiscales: client.informations_fiscales ?? null,\n      niveau_confiance: client.niveau_confiance ?? null,\n      resume: client.resume ?? null\n    },\n\n    // Donnees pour la table interactions.\n    interaction_record: {\n      representant_id: client.representant_id ?? null,\n      fichier_original_nom: fichier.fileNameOriginal ?? null,\n      transcription_originale_url: client.transcription_originale_url ?? null,\n      synthese_url: client.synthese_url ?? null,\n      fiche_json: client,\n      resume: client.resume ?? null,\n      niveau_confiance: client.niveau_confiance ?? null\n    },\n\n    // Donnees pour les tables documents_requis et taches.\n    follow_up_record: {\n      documents_requis: client.documents_requis ?? null,\n      points_a_valider: client.points_a_valider ?? null,\n      prochaines_actions: client.prochaines_actions ?? null\n    }\n  }\n};\n\n// Retourne les metadonnees dans n8n en conservant aussi les champs existants.\nreturn {\n  json: {\n    ...client,\n    metadata\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        496,
+        720
+      ],
+      "id": "c06297a0-a2a4-469a-b98a-1ad5bed0da86",
+      "name": "Construire metadata JSON"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select *\nfrom clients\nwhere representant_id = '{{ $json.metadata.database_payload.client_record.representant_id }}'\n  and telephone = nullif(nullif('{{ $json.metadata.database_payload.client_record.telephone?.replaceAll(\"'\", \"''\") }}', ''), 'null')\nlimit 1;",
+        "options": {
+          "queryReplacement": "=$1 = {{$json.metadata.database_payload.client_record.representant_id}} $2 = {{$json.metadata.database_payload.client_record.telephone}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        912,
+        720
+      ],
+      "id": "153b64b6-508b-4046-8cc5-bd002ab2aa42",
+      "name": "Postgres - Rechercher client téléphone",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into clients (\n  representant_id,\n  nom_client,\n  telephone,\n  courriel,\n  type_emploi,\n  employeur,\n  revenu_annuel,\n  revenu_conjoint,\n  type_transaction,\n  prix_achat,\n  valeur_propriete,\n  solde_hypothecaire,\n  montant_financement,\n  mise_de_fonds,\n  provenance_mise_de_fonds,\n  dettes_totales,\n  objectif,\n  date_rappel,\n  informations_fiscales,\n  statut_dossier,\n  niveau_confiance,\n  resume\n)\nvalues (\n  '67f3b17e-8d00-4fd8-84a3-fa95fbcfe6cf',\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.nom_client?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.telephone?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.courriel?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.type_emploi?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.employeur?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  null,\n  null,\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.type_transaction?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  null,\n  null,\n  null,\n  null,\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.mise_de_fonds?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.provenance_mise_de_fonds?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  null,\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.objectif?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  null,\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.informations_fiscales?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  'Nouveau',\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.niveau_confiance?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $json.metadata.database_payload.client_record.resume?.replaceAll(\"'\", \"''\") }}', ''), 'null')\n)\nreturning *;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1216,
+        960
+      ],
+      "id": "fc39e8f3-a160-4e67-a5e0-1b61b863e24f",
+      "name": "Postgres - Créer client",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "995041c0-e338-4db3-8b49-b9c31236190d",
+              "leftValue": "={{ !$json.metadata.database_payload.client_record.telephone || $json.metadata.database_payload.client_record.telephone === \"null\" || $json.metadata.database_payload.client_record.telephone === \"undefined\" }}",
+              "rightValue": "\"null\"",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "=",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        704,
+        704
+      ],
+      "id": "0dd07f70-47bd-4980-8f46-7832f875d0b8",
+      "name": "IF - Telephone vide"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6f0e6062-9237-413e-9bae-cc00a1fdfeec",
+              "leftValue": "={{ $json.metadata.database_payload.client_record.courriel }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        752,
+        976
+      ],
+      "id": "f59d7dcd-ebed-4b12-b044-1c3be4e8fe98",
+      "name": "IF - Courriel vide"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into interactions (\n  client_id,\n  representant_id,\n  fichier_original_nom,\n  transcription_originale_url,\n  synthese_url,\n  fiche_json,\n  resume,\n  niveau_confiance\n)\nvalues (\n  '{{ $json.client_id }}',\n  '{{ $json.representant_id }}',\n  nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.interaction_record.fichier_original_nom?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.interaction_record.transcription_originale_url?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.interaction_record.synthese_url?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  '{{ JSON.stringify($(\"Construire metadata JSON\").item.json.metadata.database_payload.interaction_record.fiche_json).replaceAll(\"'\", \"''\") }}'::jsonb,\n  nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.interaction_record.resume?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.interaction_record.niveau_confiance?.replaceAll(\"'\", \"''\") }}', ''), 'null')\n)\nreturning *;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1424,
+        960
+      ],
+      "id": "3153d568-8ad1-4cd8-84c1-c06d03adb87a",
+      "name": "Postgres - Créer interaction",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into documents_requis (\n  client_id,\n  interaction_id,\n  representant_id,\n  document,\n  statut,\n  date_demande\n)\nselect\n  '{{ $json.client_id }}',\n  '{{ $json.interaction_id }}',\n  '{{ $json.representant_id }}',\n  trim(document),\n  'A recevoir',\n  current_date\nfrom regexp_split_to_table(\n  '{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.follow_up_record.documents_requis?.replaceAll(\"'\", \"''\") }}',\n  ','\n) as document\nwhere trim(document) <> ''\nreturning *;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1200,
+        1184
+      ],
+      "id": "82ab57da-6f2e-45a4-9d8a-133500ea973d",
+      "name": "Postgres - Créer documents requis",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into documents_requis (\n  client_id,\n  interaction_id,\n  representant_id,\n  document,\n  statut,\n  date_demande\n)\nselect\n  '{{ $json.client_id }}',\n  '{{ $json.interaction_id }}',\n  '{{ $json.representant_id }}',\n  trim(document),\n  'A recevoir',\n  current_date\nfrom regexp_split_to_table(\n  '{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.follow_up_record.documents_requis?.replaceAll(\"'\", \"''\") }}',\n  ','\n) as document\nwhere trim(document) <> ''\nreturning *;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1440,
+        1184
+      ],
+      "id": "1b4d38e2-6d53-4083-9985-d64741ae73f2",
+      "name": "Postgres - Créer interaction1",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into documents_requis (\n  client_id,\n  interaction_id,\n  representant_id,\n  document,\n  statut,\n  date_demande\n)\nselect\n  '{{ $json.client_id }}',\n  '{{ $json.interaction_id }}',\n  '{{ $json.representant_id }}',\n  trim(document),\n  'A recevoir',\n  current_date\nfrom regexp_split_to_table(\n  nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.follow_up_record.documents_requis?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  ','\n) as document\nwhere trim(document) <> ''\nreturning *;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1216,
+        1424
+      ],
+      "id": "d6f7b8f9-f4c0-4df0-9ad1-c11c8e2d5290",
+      "name": "Postgres - Créer documents requis1",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into taches (\n  client_id,\n  interaction_id,\n  representant_id,\n  titre,\n  statut,\n  date_echeance\n)\nselect\n  '{{ $json.client_id }}',\n  '{{ $json.interaction_id }}',\n  '{{ $json.representant_id }}',\n  trim(action),\n  'A faire',\n  current_date + interval '3 days'\nfrom regexp_split_to_table(\n  nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.follow_up_record.prochaines_actions?.replaceAll(\"'\", \"''\") }}', ''), 'null'),\n  ','\n) as action\nwhere trim(action) <> ''\nreturning *;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1456,
+        1424
+      ],
+      "id": "b3be7eaf-751f-4bb1-901a-b5da55c54d57",
+      "name": "Postgres - Créer tâches",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "995041c0-e338-4db3-8b49-b9c31236190d",
+              "leftValue": "={{ !!$json.client_id }}",
+              "rightValue": "\"null\"",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "=",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        672
+      ],
+      "id": "1b0f47d1-a515-4fce-9b96-9af6b902a58c",
+      "name": "IF - Client trouvé téléphone"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update clients\nset\n  nom_client = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.nom_client?.replaceAll(\"'\", \"''\") }}', ''), 'null'), nom_client),\n telephone = coalesce(\n  nullif(nullif(nullif('{{ ($(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.telephone ?? \"\").replaceAll(\"'\", \"''\") }}', ''), 'null'), 'undefined'),\n  null\n),\ncourriel = coalesce(\n  nullif(nullif(nullif('{{ ($(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.courriel ?? \"\").replaceAll(\"'\", \"''\") }}', ''), 'null'), 'undefined'),\n  null\n),\n  type_emploi = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.type_emploi?.replaceAll(\"'\", \"''\") }}', ''), 'null'), type_emploi),\n  employeur = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.employeur?.replaceAll(\"'\", \"''\") }}', ''), 'null'), employeur),\n  type_transaction = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.type_transaction?.replaceAll(\"'\", \"''\") }}', ''), 'null'), type_transaction),\n  mise_de_fonds = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.mise_de_fonds?.replaceAll(\"'\", \"''\") }}', ''), 'null'), mise_de_fonds),\n  provenance_mise_de_fonds = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.provenance_mise_de_fonds?.replaceAll(\"'\", \"''\") }}', ''), 'null'), provenance_mise_de_fonds),\n  objectif = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.objectif?.replaceAll(\"'\", \"''\") }}', ''), 'null'), objectif),\n  informations_fiscales = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.informations_fiscales?.replaceAll(\"'\", \"''\") }}', ''), 'null'), informations_fiscales),\n  niveau_confiance = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.niveau_confiance?.replaceAll(\"'\", \"''\") }}', ''), 'null'), niveau_confiance),\n  resume = coalesce(nullif(nullif('{{ $(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.resume?.replaceAll(\"'\", \"''\") }}', ''), 'null'), resume),\n  updated_at = now()\nwhere client_id = '{{ $json.client_id }}'\nreturning *;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1616,
+        352
+      ],
+      "id": "517abb0b-f7ed-4d6a-8d6d-b91157762ad1",
+      "name": "Postgres - Mettre à jour client",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select c.*\nfrom clients c\njoin representants r on r.representant_id = c.representant_id\nwhere r.code_representant = '2026999999'\n  and lower(trim(c.nom_client)) = lower(trim(nullif(nullif(nullif('{{ ($(\"MVP - Construire payload metier\").item.json.metadata.database_payload.client_record.nom_client ?? \"\").replaceAll(\"'\", \"''\") }}', ''), 'null'), 'undefined')))\nlimit 1;",
+        "options": {
+          "queryReplacement": "=$1 = {{$json.metadata.database_payload.client_record.representant_id}} $2 = {{$json.metadata.database_payload.client_record.telephone}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        736,
+        464
+      ],
+      "id": "c5e431b6-107a-45e3-aed1-993382abc994",
+      "name": "Postgres - Rechercher client nom",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "995041c0-e338-4db3-8b49-b9c31236190d",
+              "leftValue": "={{ !!$json.client_id }}",
+              "rightValue": "\"null\"",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "=",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        896,
+        464
+      ],
+      "id": "eda91cce-0eae-4a30-831d-b2d7ffdf2fc8",
+      "name": "Postgres - Rechercher client nom1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "995041c0-e338-4db3-8b49-b9c31236190d",
+              "leftValue": "={{ false }}",
+              "rightValue": "\"null\"",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "=",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1088,
+        592
+      ],
+      "id": "1989810a-780f-4a4b-9ccd-fd68a91299e0",
+      "name": "IF - Nom client valide"
+    },
+    {
+      "parameters": {
+        "sendTo": "soussouhakim@gmail.com",
+        "subject": "={{ \"Alerte extraction client incomplète - \" + $now.toFormat(\"yyyy-MM-dd HH:mm\") }}",
+        "emailType": "text",
+        "message": "={{\n\"Bonjour,\\n\\n\" +\n\"Le workflow a traité un appel, mais aucun nom client valide n'a été extrait.\\n\\n\" +\n\"Fichier original : \" +\n($(\"Construire metadata JSON\").item.json.metadata.source?.original_file?.name ?? \"Non disponible\") +\n\"\\n\\n\" +\n\"Transcription :\\n\" +\n($(\"API - Transcription\").item.json.transcript ?? \"Transcription non disponible\") +\n\"\\n\\n\" +\n\"Action requise : vérifier manuellement la transcription et corriger la fiche client.\\n\\n\" +\n\"Workflow n8n - Transcription locale\"\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1632,
+        592
+      ],
+      "id": "f1152649-5da4-4308-b706-bb7aff1be675",
+      "name": "Send a message1",
+      "webhookId": "b982ac6b-deed-40be-957c-c970a318ea9b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "EQxfc8zYREsSP7tn",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "={{ \"ERREUR EXTRACTION CLIENT\\n\" + \"=========================\\n\\n\" + \"Date : \" + $now.toFormat(\"yyyy-MM-dd HH:mm\") + \"\\n\\n\" + \"Raison : aucun nom client valide n'a été extrait.\\n\\n\" + \"Fichier original : \" + ($(\"Construire metadata JSON\").item.json.metadata.source?.original_file?.name ?? \"Non disponible\") + \"\\n\\n\" + \"Transcription :\\n\" + ($(\"API - Transcription\").item.json.transcript ?? \"Transcription non disponible\") + \"\\n\" }}",
+        "options": {
+          "fileName": "={{ \"erreur-extraction-\" + $now.toFormat(\"yyyy-MM-dd-HHmm\") + \".txt\" }}"
+        }
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1856,
+        1152
+      ],
+      "id": "867197a8-10d6-4db2-a8a9-5c8a15496c45",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "fileId": {
+          "__rl": true,
+          "value": "1kAKSsVCkEqD-TXfnPgv4ZmbxxWUjK944",
+          "mode": "id"
+        },
+        "newUpdatedFileName": "={{ $binary.data.fileName }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1872,
+        1536
+      ],
+      "id": "fc674883-5cc1-4365-ba59-7674c971e8a1",
+      "name": "Update file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "uggjWDIEFlD0KQgw",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e38f4d34-20dc-4a5d-9661-abcee6982c31",
+              "name": "error_text",
+              "value": "{{\n  \"ERREUR EXTRACTION CLIENT\\n\" +\n  \"=========================\\n\\n\" +\n  \"Date : \" + $now.toFormat(\"yyyy-MM-dd HH:mm\") +\n  \"\\n\\nRaison : aucun nom client valide n'a été extrait.\\n\\n\" +\n  \"Fichier original : \" +\n  ($(\"Construire metadata JSON\").item.json.metadata.source?.original_file?.name ?? \"Non disponible\") +\n  \"\\n\\nTranscription :\\n\\n\" +\n  ($(\"API - Transcription\").item.json.transcript ?? \"Transcription non disponible\")\n}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1824,
+        800
+      ],
+      "id": "679364e8-3a2a-4c75-990b-bafa7f723ffd",
+      "name": "Construire fichier erreur"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Recupere la fiche client structuree produite par le noeud Parse JSON client.\nconst client = $json;\n\n// Recupere les informations du fichier original conservees avant l'appel API.\nconst fichier = $(\"Edit Fields\").item.json;\n\n// Recupere la reponse de l'API de transcription.\nconst transcription = $(\"API - Transcription\").item.json;\n\n// Genere une date de traitement normalisee en ISO 8601.\nconst processedAt = new Date().toISOString();\n\n// Construit un objet metadata unique pour le fichier courant.\nconst metadata = {\n  // Version du schema de metadonnees pour faciliter les evolutions futures.\n  schema_version: \"1.0\",\n\n  // Date et heure de creation des metadonnees.\n  processed_at: processedAt,\n\n  // Source du traitement.\n  source: {\n    // Nom du fichier original dans Google Drive.\n    file_name_original: fichier.fileNameOriginal ?? null,\n\n    // Identifiant Google Drive du fichier original.\n    file_id_original: fichier.fileIdOriginal ?? null,\n\n    // Type MIME du fichier si disponible.\n    mime_type: fichier.mimeType ?? fichier.mime_type ?? null\n  },\n\n  // Informations techniques retournees par l'API de transcription.\n  transcription: {\n    // Dossier de sortie local dans le conteneur API.\n    output_dir: transcription.outputDir ?? null,\n\n    // Chemin local du fichier transcript.txt.\n    transcript_path: transcription.transcriptPath ?? null,\n\n    // Chemin local du JSON de transcription detaille.\n    json_path: transcription.jsonPath ?? null,\n\n    // Chemin local du metadata.json produit par l'API.\n    metadata_path: transcription.metadataPath ?? null,\n\n    // Longueur approximative du texte transcrit.\n    transcript_length: transcription.transcript ? transcription.transcript.length : 0\n  },\n\n  // Donnees client extraites par Ollama et normalisees par Parse JSON client.\n  client: {\n    nom_client: client.nom_client ?? null,\n    prenom_client: client.prenom_client ?? null,\n    date_naissance: client.date_naissance ?? null,\n    telephone: client.telephone ?? null,\n    courriel: client.courriel ?? null,\n    type_emploi: client.type_emploi ?? null,\n    employeur: client.employeur ?? null,\n    revenu_annuel: client.revenu_annuel ?? null,\n    revenu_conjoint: client.revenu_conjoint ?? null,\n    type_transaction: client.type_transaction ?? null,\n    prix_achat: client.prix_achat ?? null,\n    valeur_propriete: client.valeur_propriete ?? null,\n    solde_hypothecaire: client.solde_hypothecaire ?? null,\n    montant_financement: client.montant_financement ?? null,\n    mise_de_fonds: client.mise_de_fonds ?? null,\n    provenance_mise_de_fonds: client.provenance_mise_de_fonds ?? null,\n    dettes_totales: client.dettes_totales ?? null,\n    objectif: client.objectif ?? null,\n    date_rappel: client.date_rappel ?? null,\n    informations_fiscales: client.informations_fiscales ?? null,\n    niveau_confiance: client.niveau_confiance ?? null,\n    resume: client.resume ?? null\n  },\n\n  // Listes operationnelles utilisees par le conseiller.\n  suivi: {\n    documents_requis: client.documents_requis ?? null,\n    points_a_valider: client.points_a_valider ?? null,\n    prochaines_actions: client.prochaines_actions ?? null\n  },\n\n  // Informations de securite et d'isolation a renseigner quand la branche CRM est active.\n  access_context: {\n    /*representant_id: client.representant_id ?? null,\n    client_id: client.client_id ?? null,\n    role_traitement: \"workflow_n8n\"*/\n\n      representant_id: client.representant_id ?? null,\n  code_representant: client.code_representant ?? \"2026999999\",\n  client_id: client.client_id ?? null,\n  role_traitement: \"workflow_n8n\"\n  },\n\n  // Payload structure destine a alimenter la base PostgreSQL.\n  database_payload: {\n    // Donnees principales pour la table clients.\n    client_record: {\n      representant_id: client.representant_id ?? null,\n      code_representant: client.code_representant ?? \"2026999999\",\n      nom_client: client.nom_client ?? null,\n      telephone: client.telephone ?? null,\n      courriel: client.courriel ?? null,\n      type_emploi: client.type_emploi ?? null,\n      employeur: client.employeur ?? null,\n      revenu_annuel: client.revenu_annuel ?? null,\n      revenu_conjoint: client.revenu_conjoint ?? null,\n      type_transaction: client.type_transaction ?? null,\n      prix_achat: client.prix_achat ?? null,\n      valeur_propriete: client.valeur_propriete ?? null,\n      solde_hypothecaire: client.solde_hypothecaire ?? null,\n      montant_financement: client.montant_financement ?? null,\n      mise_de_fonds: client.mise_de_fonds ?? null,\n      provenance_mise_de_fonds: client.provenance_mise_de_fonds ?? null,\n      dettes_totales: client.dettes_totales ?? null,\n      objectif: client.objectif ?? null,\n      date_rappel: client.date_rappel ?? null,\n      informations_fiscales: client.informations_fiscales ?? null,\n      niveau_confiance: client.niveau_confiance ?? null,\n      resume: client.resume ?? null\n    },\n\n    // Donnees pour la table interactions.\n    interaction_record: {\n      representant_id: client.representant_id ?? null,\n      fichier_original_nom: fichier.fileNameOriginal ?? null,\n      transcription_originale_url: client.transcription_originale_url ?? null,\n      synthese_url: client.synthese_url ?? null,\n      fiche_json: client,\n      resume: client.resume ?? null,\n      niveau_confiance: client.niveau_confiance ?? null\n    },\n\n    // Donnees pour les tables documents_requis et taches.\n    follow_up_record: {\n      documents_requis: client.documents_requis ?? null,\n      points_a_valider: client.points_a_valider ?? null,\n      prochaines_actions: client.prochaines_actions ?? null\n    }\n  }\n};\n\n// Retourne les metadonnees dans n8n en conservant aussi les champs existants.\nreturn {\n  json: {\n    ...client,\n    metadata\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1104,
+        128
+      ],
+      "id": "b1c7bfdf-891f-4915-9150-95cb6d1ee6a7",
+      "name": "MVP - Construire payload metier"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "995041c0-e338-4db3-8b49-b9c31236190d",
+              "leftValue": "={{ !$json.metadata.database_payload.client_record.telephone || $json.metadata.database_payload.client_record.telephone === \"null\" || $json.metadata.database_payload.client_record.telephone === \"undefined\" }}",
+              "rightValue": "\"null\"",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": "=",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1520,
+        -208
+      ],
+      "id": "e1d85fe2-2643-41b2-8031-021243597b2c",
+      "name": "IF - Telephone vide1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select c.*\nfrom clients c\njoin representants r on r.representant_id = c.representant_id\nwhere r.code_representant = '2026999999'\n  and lower(trim(c.nom_client)) = lower(trim(nullif(nullif(nullif('{{ ($(\"Construire metadata JSON\").item.json.metadata.database_payload.client_record.nom_client ?? \"\").replaceAll(\"'\", \"''\") }}', ''), 'null'), 'undefined')))\nlimit 1;",
+        "options": {
+          "queryReplacement": "=$1 = {{$json.metadata.database_payload.client_record.representant_id}} $2 = {{$json.metadata.database_payload.client_record.telephone}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2176,
+        -64
+      ],
+      "id": "33230b0c-6725-493f-8dcf-9d4fd9317abe",
+      "name": "Postgres - Rechercher client nom2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6f0e6062-9237-413e-9bae-cc00a1fdfeec",
+              "leftValue": "={{ $json.metadata.database_payload.client_record.courriel }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1888,
+        -48
+      ],
+      "id": "2f78a3dc-0a5d-4a13-98b3-6dd1cc83cb39",
+      "name": "IF - Courriel vide1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "59c5df49-5e63-44c0-95a0-dba4a4b1188d",
+              "leftValue": "={{\n  Boolean(\n    $json.metadata?.database_payload?.client_record?.code_representant &&\n    $json.metadata?.database_payload?.client_record?.nom_client &&\n    $(\"API - Transcription\").item.json.transcript\n  )\n}}",
+              "rightValue": "={{\n  Boolean(\n    $json.metadata?.database_payload?.client_record?.code_representant &&\n    $json.metadata?.database_payload?.client_record?.nom_client &&\n    $(\"API - Transcription\").item.json.transcript\n  )\n}}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -896,
+        128
+      ],
+      "id": "ee94f502-1c66-4a0a-b7f2-fd50b15fb70d",
+      "name": "MVP - Payload valide"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH representant_cible AS (\n    SELECT representant_id\n    FROM representants\n    WHERE code_representant = $1\n    LIMIT 1\n),\n\nclient_existant AS (\n    SELECT\n        c.client_id,\n        c.representant_id,\n        c.nom_client\n    FROM clients c\n    JOIN representant_cible r\n        ON r.representant_id = c.representant_id\n    WHERE LOWER(TRIM(c.nom_client)) = LOWER(TRIM($2))\n    LIMIT 1\n),\n\nclient_insere AS (\n    INSERT INTO clients (\n        representant_id,\n        nom_client\n    )\n    SELECT\n        r.representant_id,\n        $2\n    FROM representant_cible r\n    WHERE NOT EXISTS (\n        SELECT 1\n        FROM client_existant\n    )\n    RETURNING\n        client_id,\n        representant_id,\n        nom_client\n),\n\nclient_resultat AS (\n    SELECT\n        client_id,\n        representant_id,\n        nom_client,\n        'existant'::text AS action_effectuee\n    FROM client_existant\n\n    UNION ALL\n\n    SELECT\n        client_id,\n        representant_id,\n        nom_client,\n        'insere'::text AS action_effectuee\n    FROM client_insere\n)\n\nSELECT\n    $3::jsonb AS payload_metier,\n    client_id,\n    representant_id,\n    nom_client,\n    action_effectuee\nFROM client_resultat;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.metadata.database_payload.client_record.code_representant,\n  $json.metadata.database_payload.client_record.nom_client,\n  JSON.stringify($json)\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -480,
+        80
+      ],
+      "id": "eefadbc8-6bb2-4280-aeda-866a65421fcb",
+      "name": "MVP - Rechercher ou créer client",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO interactions (\n    client_id,\n    representant_id,\n    fichier_original_nom,\n    transcription_originale_url,\n    synthese_url,\n    fiche_json,\n    resume,\n    niveau_confiance\n)\nVALUES (\n    $1::uuid,\n    $2::uuid,\n    $3,\n    $4,\n    $5,\n    $6::jsonb,\n    $7,\n    $8\n)\nRETURNING\n    $9::jsonb AS payload_metier,\n    interaction_id,\n    client_id,\n    representant_id,\n    date_appel,\n    type_interaction,\n    fichier_original_nom,\n    'interaction_creee' AS action_effectuee;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.client_id,\n  $json.representant_id,\n  $json.payload_metier.metadata.database_payload.interaction_record.fichier_original_nom,\n  $json.payload_metier.metadata.database_payload.interaction_record.transcription_originale_url,\n  $json.payload_metier.metadata.database_payload.interaction_record.synthese_url,\n  JSON.stringify($json.payload_metier.metadata.database_payload.interaction_record.fiche_json),\n  $json.payload_metier.metadata.database_payload.interaction_record.resume,\n  $json.payload_metier.metadata.database_payload.interaction_record.niveau_confiance,\n  JSON.stringify($json.payload_metier)\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -448,
+        304
+      ],
+      "id": "4ed4a5d2-5205-43a1-ac83-9b5bd66dec53",
+      "name": "MVP - Créer interaction",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH documents AS (\n    SELECT TRIM(document) AS document\n    FROM regexp_split_to_table($4, ',') AS document\n    WHERE TRIM(document) <> ''\n),\n\ndocuments_inseres AS (\n    INSERT INTO documents_requis (\n        client_id,\n        interaction_id,\n        representant_id,\n        document\n    )\n    SELECT\n        $1::uuid,\n        $2::uuid,\n        $3::uuid,\n        document\n    FROM documents\n    RETURNING\n        document_id,\n        client_id,\n        interaction_id,\n        representant_id,\n        document,\n        statut,\n        date_demande\n)\n\nSELECT\n    $5::jsonb AS payload_metier,\n    document_id,\n    client_id,\n    interaction_id,\n    representant_id,\n    document,\n    statut,\n    date_demande,\n    'document_cree' AS action_effectuee\nFROM documents_inseres;",
+        "options": {
+          "queryReplacement": "={{\n[\n  $json.client_id,\n  $json.interaction_id,\n  $json.representant_id,\n  $json.payload_metier.metadata.database_payload.follow_up_record.documents_requis,\n  JSON.stringify($json.payload_metier)\n]\n}}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -416,
+        496
+      ],
+      "id": "8a4d5a46-96bb-4a8b-99a0-e49f09d73b14",
+      "name": "MVP - Creer documents requis",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH tache_inseree AS (\n    INSERT INTO taches (\n        client_id,\n        representant_id,\n        interaction_id,\n        titre,\n        description,\n        date_echeance\n    )\n    SELECT\n        $1::uuid,\n        $2::uuid,\n        $3::uuid,\n        'Suivi des documents requis',\n        NULLIF(TRIM($4), ''),\n        NULL\n    WHERE NULLIF(TRIM($4), '') IS NOT NULL\n      AND NOT EXISTS (\n          SELECT 1\n          FROM taches\n          WHERE interaction_id = $3::uuid\n            AND titre = 'Suivi des documents requis'\n      )\n    RETURNING\n        tache_id,\n        client_id,\n        representant_id,\n        interaction_id,\n        titre,\n        description,\n        date_echeance,\n        statut,\n        created_at\n)\n\nSELECT\n    $5::jsonb AS payload_metier,\n    tache_id,\n    client_id,\n    representant_id,\n    interaction_id,\n    titre,\n    description,\n    date_echeance,\n    statut,\n    created_at,\n    'tache_creee' AS action_effectuee\nFROM tache_inseree;",
+        "options": {
+          "queryReplacement": "={{ [   $json.client_id,   $json.representant_id,   $json.interaction_id,   $json.payload_metier.metadata.database_payload.follow_up_record.prochaines_actions,   JSON.stringify($json.payload_metier) ] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -400,
+        704
+      ],
+      "id": "fc990146-2ec8-4eb2-8a86-3da4e37eaf1d",
+      "name": "MVP - Creer tâche de suivi",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a5f8d6af-b6bc-46ed-ab9c-e85da0c1c872",
+              "name": "terme_recherche",
+              "value": "Tremblay",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -656,
+        976
+      ],
+      "id": "bdca153f-1be1-4608-afb5-6e43b7b3ae8e",
+      "name": "Definir recherche client"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT crm.rechercher_clients($1::text) AS resultat;",
+        "options": {
+          "queryReplacement": "{{ [$json.terme_recherche] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -640,
+        1168
+      ],
+      "id": "ca8162ff-ec9f-4fa5-90f5-739fab2636c7",
+      "name": "CRM - Rechercher clients",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6e43bd47-e909-44f9-9514-c8a609a41d5d",
+              "name": "client_id",
+              "value": "={{ $('CRM - Rechercher clients').item.json.resultat.resultats.find(c => c.nom_client === 'Tremblay')?.client_id }}",
+              "type": "string"
+            },
+            {
+              "id": "8742d28a-ba06-4b7b-9b21-c836afbc0e95",
+              "name": "nom_client",
+              "value": "={{ $('CRM - Rechercher clients').item.json.resultat.resultats.find(c => c.nom_client === 'Tremblay')?.nom_client }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -640,
+        1360
+      ],
+      "id": "8b7e2d31-5009-4561-a056-ff076b8da6f4",
+      "name": "Selectionner client"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT crm.obtenir_etat_dossier($1::uuid) AS resultat;",
+        "options": {
+          "queryReplacement": "={{ [$json.client_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -624,
+        1568
+      ],
+      "id": "aefbe673-aebc-47fd-90ea-726ba2f563ff",
+      "name": "CRM - Obtenir état du dossier",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ad73124-105a-4080-9e6b-a456025e95c4",
+              "name": "nom_client",
+              "value": "={{ $json.resultat.client.nom_client }}",
+              "type": "string"
+            },
+            {
+              "id": "2999b77b-405b-47f0-a00b-3830e2554d82",
+              "name": "etat",
+              "value": "={{ $json.resultat.etat }}",
+              "type": "string"
+            },
+            {
+              "id": "c31f3c37-028c-4fd6-89ab-d13f302f449e",
+              "name": "nombre_interactions",
+              "value": "={{ $json.resultat.resume_dossier.nombre_interactions }}",
+              "type": "string"
+            },
+            {
+              "id": "c2ddab03-3e48-4ead-9db4-7a889894c750",
+              "name": "documents_manquants",
+              "value": "={{ $json.resultat.documents_manquants.map(d => d.document).join(', ') }}",
+              "type": "string"
+            },
+            {
+              "id": "eb821cef-15b2-40fd-94d4-5fe06d5a49fd",
+              "name": "nombre_taches_ouvertes",
+              "value": "={{ $json.resultat.resume_dossier.nombre_taches_ouvertes }}",
+              "type": "string"
+            },
+            {
+              "id": "2681b5a4-b5b8-4764-99a9-ef238199e345",
+              "name": "prochaine_action",
+              "value": "={{ $json.resultat.prochaine_action || 'Aucune prochaine action définie' }}",
+              "type": "string"
+            },
+            {
+              "id": "4ac2ef2b-bd11-40b8-9fc5-07bf19f494ec",
+              "name": "derniere_interaction",
+              "value": "={{ $json.resultat.derniere_interaction ? `${$json.resultat.derniere_interaction.type_interaction} du ${$json.resultat.derniere_interaction.date_appel}` : 'Aucune interaction' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -592,
+        1824
+      ],
+      "id": "b4a90237-28b4-442b-baac-ea4d814461ca",
+      "name": "Preparer contexte IA"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": " http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  model: \"mistral-nemo\",\n  stream: false,\n  prompt: `Tu es un assistant CRM hypothécaire.\n\nRéponds uniquement à partir des données fournies.\nN'invente aucune information.\nRédige une réponse courte, claire et professionnelle en français canadien.\nMentionne l'état du dossier, les documents manquants, les tâches ouvertes et la prochaine action.\nLorsque tu mentionnes une date, utilise la date complète fournie et n'utilise pas les termes aujourd'hui, hier, dernier ou prochain.\nNe présente pas les données sous forme de JSON.\n\nDonnées du dossier :\nClient : ${$json.nom_client}\nÉtat : ${$json.etat}\nNombre d'interactions : ${$json.nombre_interactions}\nDocuments manquants : ${$json.documents_manquants || \"Aucun\"}\nNombre de tâches ouvertes : ${$json.nombre_taches_ouvertes}\nProchaine action : ${$json.prochaine_action}\nDernière interaction : ${$json.derniere_interaction}`\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -320,
+        1824
+      ],
+      "id": "585bad0f-44d8-42ff-aa71-e30b85c305e2",
+      "name": "IA - Resumer état du dossier"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9bbc773a-3641-4128-a95f-0a5cc5c21324",
+              "name": "reponse",
+              "value": "={{ $json.response }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -112,
+        1824
+      ],
+      "id": "5f8f25f2-78f7-414c-8e43-7e1bb1a191a2",
+      "name": "Reponse CRM finale"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": " Chercher fichiers a traiter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Test synthese": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "API - Transcription": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Convert Transcription Originale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Ollama - Extraction JSON client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Transcription AI Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert Transcription Originale": {
+      "main": [
+        [
+          {
+            "node": "Transcription Original",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcription AI Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Transcription AI",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ollama - Extraction JSON client": {
+      "main": [
+        [
+          {
+            "node": "Parse JSON client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    " Chercher fichiers a traiter": {
+      "main": [
+        [
+          {
+            "node": "Boucle fichiers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Boucle fichiers": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Download file1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Recuperer ID fichier original",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move file": {
+      "main": [
+        [
+          {
+            "node": "Boucle fichiers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "API - Transcription",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Recuperer ID fichier original",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Recuperer ID fichier original": {
+      "main": [
+        [
+          {
+            "node": "Move file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse JSON client": {
+      "main": [
+        [
+          {
+            "node": "MVP - Construire payload metier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construire metadata JSON": {
+      "main": [
+        [
+          {
+            "node": "IF - Telephone vide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Rechercher client téléphone": {
+      "main": [
+        [
+          {
+            "node": "IF - Client trouvé téléphone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Telephone vide": {
+      "main": [
+        [
+          {
+            "node": "IF - Courriel vide",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Rechercher client téléphone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Courriel vide": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Rechercher client nom",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Créer client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Créer client": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Créer interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Créer interaction": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Créer documents requis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Créer documents requis": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Créer interaction1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Créer interaction1": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Créer documents requis1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Créer documents requis1": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Créer tâches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Client trouvé téléphone": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Mettre à jour client",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres - Créer client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Mettre à jour client": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Créer interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Rechercher client nom": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Rechercher client nom1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres - Rechercher client nom1": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Mettre à jour client",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF - Nom client valide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Nom client valide": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Créer client",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message1": {
+      "main": [
+        [
+          {
+            "node": "Construire fichier erreur",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "Update file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construire fichier erreur": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MVP - Construire payload metier": {
+      "main": [
+        [
+          {
+            "node": "MVP - Payload valide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Telephone vide1": {
+      "main": [
+        [
+          {
+            "node": "IF - Courriel vide1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Courriel vide1": {
+      "main": [
+        [
+          {
+            "node": "Postgres - Rechercher client nom2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MVP - Payload valide": {
+      "main": [
+        [
+          {
+            "node": "MVP - Rechercher ou créer client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MVP - Rechercher ou créer client": {
+      "main": [
+        [
+          {
+            "node": "MVP - Créer interaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MVP - Créer interaction": {
+      "main": [
+        [
+          {
+            "node": "MVP - Creer documents requis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MVP - Creer documents requis": {
+      "main": [
+        [
+          {
+            "node": "MVP - Creer tâche de suivi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Definir recherche client": {
+      "main": [
+        [
+          {
+            "node": "CRM - Rechercher clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM - Rechercher clients": {
+      "main": [
+        [
+          {
+            "node": "Selectionner client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Selectionner client": {
+      "main": [
+        [
+          {
+            "node": "CRM - Obtenir état du dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM - Obtenir état du dossier": {
+      "main": [
+        [
+          {
+            "node": "Preparer contexte IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparer contexte IA": {
+      "main": [
+        [
+          {
+            "node": "IA - Resumer état du dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA - Resumer état du dossier": {
+      "main": [
+        [
+          {
+            "node": "Reponse CRM finale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "566ef08c-c2d1-4c10-8c86-1b024a085c63",
+  "activeVersionId": null,
+  "versionCounter": 231,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-07-15T12:40:03.287Z",
+      "createdAt": "2026-07-15T12:40:03.287Z",
+      "role": "workflow:owner",
+      "workflowId": "QJBZUw1LnEgAOMCn",
+      "projectId": "VN1nbOvuajbWSkxr",
+      "project": {
+        "updatedAt": "2026-07-15T11:52:02.393Z",
+        "createdAt": "2026-07-15T03:09:45.555Z",
+        "id": "VN1nbOvuajbWSkxr",
+        "name": "hakim soussouhakim@yahoo.com <soussouhakim@yahoo.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "3c342ba3-d3d4-4563-8cb0-41f4c81408d7"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

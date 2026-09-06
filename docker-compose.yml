@@ -1,4 +1,26 @@
 services:
+  # Gestionnaire d’identité OIDC local du portail CRM.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.0
+    container_name: keycloak-crm
+    command: start-dev --import-realm
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
+      KC_HEALTH_ENABLED: "true"
+      # Keycloak publie ses URL OIDC avec le nom HTTPS du tunnel, tout en
+      # continuant d'écouter en HTTP uniquement sur la boucle locale.
+      KC_HOSTNAME: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      KC_HOSTNAME_STRICT: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./keycloak/realm-crm-local.json:/opt/keycloak/data/import/realm-crm-local.json:ro
+    restart: unless-stopped
+
   # Base de donnees PostgreSQL locale pour la phase CRM intelligent.
   postgres-crm:
     # Utilise l'image officielle PostgreSQL version 16.
@@ -24,9 +46,45 @@ services:
       - ./database/002_access_control.sql:/docker-entrypoint-initdb.d/002_access_control.sql:ro
       # Execute la contrainte de format du code metier representant au premier demarrage du volume.
       - ./database/003_representant_business_code.sql:/docker-entrypoint-initdb.d/003_representant_business_code.sql:ro
+      - ./database/004_crm_services.sql:/docker-entrypoint-initdb.d/004_crm_services.sql:ro
+      - ./database/005_crm_runtime_security.sql:/docker-entrypoint-initdb.d/005_crm_runtime_security.sql:ro
+      - ./database/006_derniers_clients.sql:/docker-entrypoint-initdb.d/006_derniers_clients.sql:ro
+      - ./database/007_recherche_clients_minimisee.sql:/docker-entrypoint-initdb.d/007_recherche_clients_minimisee.sql:ro
+      - ./database/008_code_client_metier.sql:/docker-entrypoint-initdb.d/008_code_client_metier.sql:ro
+      - ./database/009_dossier_client_agent.sql:/docker-entrypoint-initdb.d/009_dossier_client_agent.sql:ro
+      - ./database/010_clients_documents_manquants.sql:/docker-entrypoint-initdb.d/010_clients_documents_manquants.sql:ro
+      - ./database/011_details_hypothecaires.sql:/docker-entrypoint-initdb.d/011_details_hypothecaires.sql:ro
+      - ./database/012_consultation_portefeuille.sql:/docker-entrypoint-initdb.d/012_consultation_portefeuille.sql:ro
+      - ./database/013_profil_demande_hypothecaire.sql:/docker-entrypoint-initdb.d/013_profil_demande_hypothecaire.sql:ro
+      - ./database/014_enregistrement_dossier.sql:/docker-entrypoint-initdb.d/014_enregistrement_dossier.sql:ro
+      - ./database/015_relations_dossiers_clients.sql:/docker-entrypoint-initdb.d/015_relations_dossiers_clients.sql:ro
+      - ./database/016_parcours_hypothecaire.sql:/docker-entrypoint-initdb.d/016_parcours_hypothecaire.sql:ro
+      - ./database/017_agenda_rappels.sql:/docker-entrypoint-initdb.d/017_agenda_rappels.sql:ro
+      - ./database/018_suivi_statut_dossier.sql:/docker-entrypoint-initdb.d/018_suivi_statut_dossier.sql:ro
     restart: unless-stopped
 
   # Service HTTP local appele par curl ou par le noeud HTTP Request de n8n.
+  dictation-worker:
+    build:
+      context: .
+      dockerfile: deploy/dictation/Containerfile
+      args:
+        VOSK_MODEL_URL: https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip
+    container_name: dictation-worker
+    environment:
+      DICTATION_WORKER_TOKEN: ${DICTATION_WORKER_TOKEN:-local-dictation-worker}
+      DICTATION_MAX_WAV_BYTES: 2097152
+      DICTATION_MAX_DURATION_SECONDS: 35
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:2701/health', timeout=2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+
   transcription-api:
     # Construit l'image depuis le Dockerfile du dossier courant.
     build:
@@ -52,11 +110,43 @@ services:
       # HUGGINGFACE_TOKEN est requis si le modele pyannote choisi est protege.
       # HUGGINGFACE_TOKEN: hf_xxx
       MAX_UPLOAD_BODY_MB: 512
+      DICTATION_WORKER_URL: http://dictation-worker:2701
+      DICTATION_WORKER_TOKEN: ${DICTATION_WORKER_TOKEN:-local-dictation-worker}
+      DICTATION_MAX_UPLOAD_MB: 2
+      DICTATION_MAX_PENDING: 3
+      DICTATION_TIMEOUT_MS: 45000
+      # L API relaie les messages Web vers n8n; le navigateur ne connait pas cette URL.
+      N8N_AGENT_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agent-chat
+      N8N_RECENT_CLIENTS_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/clients-recents
+      N8N_MISSING_DOCUMENTS_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/documents-manquants
+      N8N_CLIENT_DOSSIER_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/dossier-client
+      N8N_DOSSIER_WRITE_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/enregistrer-dossier
+      N8N_PORTFOLIO_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/portefeuille
+      N8N_CALENDAR_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agenda
+      N8N_CALENDAR_WRITE_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agenda/evenements
+      N8N_CALENDAR_UPDATE_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agenda/evenements/modifier
+      AGENT_TIMEOUT_MS: 120000
+      # L’API valide les jetons Keycloak et extrait le representant_id signé.
+      KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/crm-local}
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/crm-local/protocol/openid-connect/certs
+      KEYCLOAK_AUDIENCE: crm-api
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL:-http://localhost:8080}
+      KEYCLOAK_REALM: crm-local
+      KEYCLOAK_CLIENT_ID: crm-web
+      # Compte technique confidentiel, limité à la gestion des utilisateurs Keycloak.
+      KEYCLOAK_ADMIN_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN_CLIENT_ID: ${KEYCLOAK_ADMIN_CLIENT_ID:-}
+      KEYCLOAK_ADMIN_CLIENT_SECRET: ${KEYCLOAK_ADMIN_CLIENT_SECRET:-}
     volumes:
       # Conserve les transcriptions sur le disque meme si le conteneur est supprime.
       - ./outputs:/app/outputs
     restart: unless-stopped
+    depends_on:
+      dictation-worker:
+        condition: service_healthy
 
 volumes:
   # Volume Docker persistant qui stocke physiquement les donnees PostgreSQL.
   postgres_data:
+  # Persiste la configuration et les utilisateurs du gestionnaire d’identité local.
+  keycloak_data:

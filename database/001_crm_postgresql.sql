@@ -73,6 +73,8 @@ create table if not exists clients (
   informations_fiscales text,
   -- Statut courant du dossier client.
   statut_dossier text not null default 'Nouveau',
+  -- Date de début du statut courant, indépendante des autres modifications.
+  statut_depuis timestamptz not null default now(),
   -- Niveau de confiance retourne par l'extraction IA.
   niveau_confiance text,
   -- Resume court du dossier.
@@ -82,6 +84,13 @@ create table if not exists clients (
   -- Date de derniere mise a jour de la fiche client.
   updated_at timestamptz not null default now()
 );
+
+-- Compatibilité avec une base créée avant l’ajout du suivi temporel du statut.
+alter table clients add column if not exists statut_depuis timestamptz;
+update clients set statut_depuis = coalesce(statut_depuis, updated_at, created_at, now())
+where statut_depuis is null;
+alter table clients alter column statut_depuis set default now();
+alter table clients alter column statut_depuis set not null;
 
 -- Empeche deux fiches client avec le meme telephone pour le meme representant.
 create unique index if not exists ux_clients_representant_telephone

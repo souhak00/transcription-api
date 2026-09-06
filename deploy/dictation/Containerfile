@@ -1,0 +1,25 @@
+FROM python:3.11-slim-bookworm
+
+ARG VOSK_MODEL_URL=https://alphacephei.com/vosk/models/vosk-model-small-fr-0.22.zip
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates wget unzip \
+  && rm -rf /var/lib/apt/lists/* \
+  && pip install --no-cache-dir vosk==0.3.45 \
+  && wget -O /tmp/vosk-model.zip "$VOSK_MODEL_URL" \
+  && unzip /tmp/vosk-model.zip -d /opt \
+  && mv /opt/vosk-model-* /opt/vosk-model \
+  && rm /tmp/vosk-model.zip
+
+WORKDIR /app
+COPY scripts/vosk_dictation_worker.py ./scripts/vosk_dictation_worker.py
+
+ENV DICTATION_WORKER_HOST=0.0.0.0
+ENV DICTATION_WORKER_PORT=2701
+ENV VOSK_MODEL_PATH=/opt/vosk-model
+ENV DICTATION_MAX_WAV_BYTES=2097152
+ENV DICTATION_MAX_DURATION_SECONDS=35
+
+EXPOSE 2701
+
+CMD ["python", "scripts/vosk_dictation_worker.py"]

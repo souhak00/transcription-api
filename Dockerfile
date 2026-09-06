@@ -1,3 +1,12 @@
+# Construit d abord l interface React dans une image ephemere.
+FROM node:24-bookworm-slim AS web-builder
+
+WORKDIR /web
+COPY web/package*.json ./
+RUN npm ci
+COPY web ./
+RUN npm run build
+
 # Image de base fournissant Node.js, necessaire au serveur HTTP.
 FROM node:24-bookworm-slim
 
@@ -25,11 +34,13 @@ RUN wget -O /tmp/vosk-model.zip "$VOSK_MODEL_URL" \
 # Definit le dossier d'execution du serveur a l'interieur du conteneur.
 WORKDIR /app
 
-# Copie uniquement les fichiers utiles a l'execution de l'API.
-COPY package.json ./
+# Copie et installe uniquement les dépendances nécessaires à l’exécution de l’API.
+COPY package*.json ./
+RUN npm ci --omit=dev
 COPY src ./src
 COPY scripts ./scripts
 COPY README.md ./
+COPY --from=web-builder /web/dist ./web/dist
 
 # Configure l'API et la commande Python que Node lancera pour chaque audio.
 ENV HOST=0.0.0.0

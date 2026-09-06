@@ -1,4 +1,701 @@
-# Architecture de composants
+# Architecture de la plateforme IA hypothécaire
+
+**Dernière mise à jour :** 2026-08-26
+
+**Statut :** architecture de référence du MVP
+
+**Branche de travail :** `feature/reprise-travaux-crm`
+
+Ce document distingue volontairement :
+
+- l’architecture actuellement implantée et testée;
+- les éléments préparés dans le dépôt, mais pas encore déployés;
+- l’architecture cible du MVP.
+
+Les sections placées avant l’annexe sont autoritatives. L’annexe conserve les
+détails utiles du pipeline historique de transcription.
+
+Les vues C4 navigables, dynamiques et de déploiement sont regroupées dans
+[`docs/architecture/c4/README.md`](./docs/architecture/c4/README.md); leur source
+Structurizr est maintenue dans le même dossier.
+
+## Principes d’architecture validés
+
+1. PostgreSQL porte la logique métier CRM.
+2. Les fonctions du schéma `crm` constituent l’API interne.
+3. Toutes les fonctions métier retournent du `jsonb`.
+4. n8n orchestre les services et ne lit pas directement les tables.
+5. Ollama reçoit seulement le contexte JSON nécessaire à la réponse.
+6. Ollama et les agents IA ne disposent d’aucun accès direct à PostgreSQL.
+7. L’identité du représentant doit être contrôlée techniquement par l’API et
+   PostgreSQL, jamais par une instruction donnée au modèle.
+8. L’interface Web ne communique jamais directement avec PostgreSQL.
+9. La checklist documentaire est déterministe, versionnée et explicable.
+10. L’OCR fonctionne sans Ollama; les suggestions IA nécessitent une validation
+    humaine avant de devenir des données officielles.
+11. Les fichiers hypothécaires résident dans un stockage objet privé; PostgreSQL
+    conserve les métadonnées, statuts, empreintes et audits.
+
+La conception détaillée de cette extension est autoritative dans
+[`docs/gestion-documentaire-ocr.md`](./docs/gestion-documentaire-ocr.md). La
+couverture fonctionnelle et le budget VPS sont respectivement décrits dans
+[`docs/checklist-documents-hypothecaires.md`](./docs/checklist-documents-hypothecaires.md)
+et [`docs/capacite-hostinger.md`](./docs/capacite-hostinger.md).
+
+## Architecture de production actuelle
+
+```mermaid
+flowchart TD
+    User["Représentant"] --> Web["React<br/>crm.toniaconseil.com"]
+    Web --> Auth["Keycloak<br/>auth.toniaconseil.com"]
+    Web --> API["API Node.js<br/>JWT et identité représentant"]
+    API --> N8N["n8n privé<br/>orchestration"]
+    API --> PG["Services crm.*<br/>PostgreSQL + RLS"]
+    N8N --> PG
+    N8N --> Ollama["Ollama mistral-nemo"]
+    API --> Web
+    Caddy["Caddy TLS"] --> Web
+    Caddy --> Auth
+    Caddy --> N8N
+```
+
+La production Hostinger expose seulement Caddy sur les ports 80 et 443. L’API,
+PostgreSQL, Keycloak, n8n et Ollama communiquent sur les réseaux Docker privés.
+Keycloak établit les rôles et l’attribut représentant; l’API et la RLS restent
+les autorités d’accès. Le parcours hypothécaire en 11 étapes est implanté.
+
+La gestion documentaire en production se limite encore à la table
+`documents_requis` : libellé, statut et date de demande. Elle ne contient pas
+encore les PDF, versions, contrôles antivirus, OCR ou validations.
+
+## Architecture historique locale implantée
+
+```mermaid
+flowchart LR
+    User["Opérateur de démonstration"]
+
+    subgraph Docker["Docker Desktop sous Windows"]
+        N8N["n8n local<br/>orchestration"]
+        API["API de transcription<br/>Node.js / Express"]
+        PG["PostgreSQL 16<br/>transcription_crm"]
+    end
+
+    Ollama["Ollama local<br/>mistral-nemo"]
+    Drive["Google Drive"]
+    Gmail["Gmail"]
+
+    User -->|"Manual Trigger"| N8N
+    Drive -->|"audio"| N8N
+    N8N -->|"HTTP /transcribe/upload"| API
+    N8N -->|"fonctions crm.*"| PG
+    N8N -->|"JSON CRM ou transcription"| Ollama
+    Ollama -->|"réponse française"| N8N
+    N8N --> Drive
+    N8N --> Gmail
+```
+
+### Composants confirmés
+
+| Composant | État | Responsabilité |
+| --- | --- | --- |
+| Docker Desktop | Fonctionnel | Exécution locale des conteneurs |
+| `transcription-api` | Fonctionnel | Conversion audio et transcription locale |
+| PostgreSQL `transcription_crm` | Fonctionnel | Données CRM et services métier |
+| n8n local | Fonctionnel | Orchestration des workflows |
+| Ollama `mistral-nemo` | Fonctionnel | Compréhension et génération en français |
+| Workflow de transcription | Existant | Audio vers transcription, synthèse et sorties |
+| Workflow CRM `CrmEtatDossierV1` | Validé | Consultation d’un état de dossier et résumé IA |
+| Interface Web React | Version MVP construite | Point d’entrée responsive du représentant |
+| Authentification API | Implantée | Keycloak, JWT RS256, rôles et identité représentant |
+
+## Couche de services PostgreSQL
+
+Les tables restent dans le schéma `public`. Le schéma `crm` expose les services
+que n8n, l’API REST et les futurs agents sont autorisés à appeler.
+
+```mermaid
+flowchart LR
+    Consumers["API REST / n8n"]
+    Services["Schéma crm<br/>fonctions JSON"]
+    RLS["Politiques RLS"]
+    Tables["Tables public<br/>clients, interactions,<br/>documents_requis, taches"]
+
+    Consumers -->|"EXECUTE uniquement"| Services
+    Services --> RLS --> Tables
+```
+
+### Services versionnés
+
+| Fonction | Paramètre | Responsabilité |
+| --- | --- | --- |
+| `crm.rechercher_clients` | `p_terme text` | Recherche par nom, téléphone ou courriel |
+| `crm.obtenir_client` | `p_client_id uuid` | Profil complet du client |
+| `crm.obtenir_interactions` | `p_client_id uuid` | Historique des interactions |
+| `crm.obtenir_documents` | `p_client_id uuid` | Documents requis et documents manquants |
+| `crm.obtenir_taches` | `p_client_id uuid` | Tâches et tâches ouvertes |
+| `crm.obtenir_etat_dossier` | `p_client_id uuid` | Composition de l’état complet du dossier |
+| `crm.obtenir_derniers_clients` | aucun | Dix clients visibles les plus récemment créés |
+| `crm.rechercher_clients_agent` | `p_terme text` | Recherche minimisée avec `code_client`, sans UUID |
+| `crm.obtenir_documents_client` | `p_code_client text` | Documents d’un client désigné par son code métier |
+| `crm.obtenir_taches_client` | `p_code_client text` | Tâches d’un client désigné par son code métier |
+| `crm.obtenir_dossier_client` | `p_reference_client text` | Dossier complet visible par code ou nom, sans UUID |
+
+Le contrat de sortie est toujours du `jsonb`. `crm.obtenir_etat_dossier()`
+compose les cinq autres services et fournit notamment :
+
+```json
+{
+  "trouve": true,
+  "client": {},
+  "etat": "Nouveau",
+  "resume_dossier": {
+    "nombre_interactions": 4,
+    "nombre_documents_manquants": 3,
+    "nombre_taches_ouvertes": 1
+  },
+  "derniere_interaction": {},
+  "documents_manquants": [],
+  "taches_ouvertes": [],
+  "prochaine_action": "Transfert des documents requis le lundi 8 juin"
+}
+```
+
+Les définitions sont versionnées dans
+[`database/004_crm_services.sql`](./database/004_crm_services.sql).
+
+### Identifiant métier client
+
+La migration
+[`database/008_code_client_metier.sql`](./database/008_code_client_metier.sql)
+ajoute `clients.code_client`, un identifiant lisible, unique et immuable :
+
+```text
+CLI-2026-OB-000012
+│   │    │  └─ séquence globale sur six chiffres
+│   │    └──── initiales normalisées du client
+│   └───────── année de création de la fiche
+└───────────── type d’entité Client
+```
+
+L’UUID `client_id` demeure la clé primaire interne et continue de porter les
+relations SQL. Le `code_client` est affichable et sert à chaîner les outils de
+l’agent, mais ne constitue jamais une preuve d’autorisation. L’accès reste
+filtré par l’identité authentifiée du représentant et les politiques RLS.
+
+```mermaid
+flowchart LR
+    Agent["Agent Ollama"]
+    Search["rechercher_clients_agent(nom)"]
+    Code["code_client"]
+    Service["obtenir_documents_client(code)<br/>obtenir_taches_client(code)"]
+    RLS["PostgreSQL + RLS"]
+
+    Agent --> Search --> Code --> Service --> RLS
+```
+
+## Workflow CRM validé
+
+Le workflow `CRM - État du dossier - Validation`, identifié dans n8n par
+`CrmEtatDossierV1`, a été importé et exécuté avec succès le 2026-07-30.
+Il reste volontairement non publié : son `Manual Trigger` sert aux essais dans
+l’éditeur et ne constitue pas un déclencheur de production. Cette configuration
+évite les tentatives d’activation répétées au démarrage de n8n.
+
+```mermaid
+flowchart LR
+    Trigger["Manual Trigger"]
+    Term["Définir recherche client"]
+    Search["CRM - Rechercher clients<br/>crm.rechercher_clients()"]
+    Select["Sélectionner client"]
+    State["CRM - Obtenir état du dossier<br/>crm.obtenir_etat_dossier()"]
+    Context["Préparer contexte IA"]
+    AI["IA - Résumer état du dossier<br/>Ollama mistral-nemo"]
+    Answer["Réponse CRM finale"]
+
+    Trigger --> Term --> Search --> Select --> State --> Context --> AI --> Answer
+```
+
+### Résultat de validation Tremblay
+
+| Élément | Valeur confirmée |
+| --- | --- |
+| Correspondances de recherche | 3 |
+| Dossier sélectionné pour le test | `Tremblay` |
+| État | `Nouveau` |
+| Interactions | 4 |
+| Documents manquants | 3 |
+| Tâches ouvertes | 1 |
+| Prochaine action | Transfert des documents requis le lundi 8 juin |
+
+Le prompt de résumé a été retesté le 6 août 2026 avec cet état JSON réel. La
+génération s’est terminée normalement, sans UUID ni champ interne, en une
+phrase complète de 264 caractères couvrant l’état, les trois documents, la
+tâche ouverte et la prochaine action.
+
+Les trois noms `Tremblay`, `Guylaine Tremblay` et `Tremblay, Guylaine`
+représentent une ambiguïté réelle des données de démonstration. La sélection
+automatique du workflow est réservée au scénario de validation. L’agent cible
+devra demander une clarification lorsqu’il ne trouve pas exactement un client
+unique.
+
+L’export assaini et réimportable se trouve dans
+[`n8n-workflows/crm_etat_dossier_valide.json`](./n8n-workflows/crm_etat_dossier_valide.json).
+
+Depuis l’application de la migration `005_crm_runtime_security.sql`, ce
+workflow manuel initialise `app.role = representant` et
+`app.representant_id` dans la même requête que chaque appel `crm.*`. Pour le
+scénario Tremblay, l’identifiant du représentant est une valeur locale de test.
+Dans l’agent cible, cette valeur doit provenir exclusivement du JWT validé par
+l’API et ne doit jamais être fournie librement par le navigateur ou Ollama.
+Le prompt associé est versionné dans
+[`prompts/crm_resume_etat_dossier.md`](./prompts/crm_resume_etat_dossier.md).
+
+## Workflow de transcription existant
+
+Le pipeline de transcription reste un flux distinct du workflow de consultation
+CRM.
+
+```mermaid
+flowchart LR
+    Drive["Google Drive<br/>audio à traiter"]
+    N8N["n8n"]
+    API["API locale de transcription"]
+    Convert["FFmpeg / Vosk"]
+    Ollama["Ollama<br/>synthèse et extraction"]
+    CRM["Services CRM / données"]
+    Outputs["Drive / Gmail"]
+
+    Drive --> N8N --> API --> Convert --> N8N
+    N8N --> Ollama --> N8N
+    N8N --> CRM
+    N8N --> Outputs
+```
+
+Le workflow historique fonctionne, mais certains de ses nœuds PostgreSQL
+effectuent encore des requêtes directes. Ces nœuds sont considérés comme une
+dette technique : toute évolution doit les remplacer par des fonctions du
+schéma `crm`.
+
+## Entrée texte pour le MVP
+
+Le workflow `CRM - Analyse transcription texte`, identifié par
+`CrmAnalyseTexteV1`, permet de contourner la transcription audio lorsqu’une
+plateforme de réunion fournit déjà un texte.
+
+```mermaid
+flowchart LR
+    Text["Webhook local<br/>champ transcript"]
+    Validate["Valider et découper<br/>12 000 caractères max."]
+    Prompt["Préparer extraction<br/>contrat avec preuves"]
+    Priority["Prioriser extraits CRM<br/>fenêtres verbatim"]
+    Loop["Boucle séquentielle<br/>un segment à la fois"]
+    Nemo["Ollama mistral-nemo<br/>sortie limitée"]
+    Normalize["Normaliser faits<br/>documents et actions"]
+    Review["Assembler prévalidation"]
+    Response["Réponse JSON<br/>aucune écriture CRM"]
+
+    Text --> Validate --> Prompt --> Priority --> Loop --> Nemo --> Normalize --> Loop
+    Loop --> Review --> Response
+```
+
+Contrat d’entrée :
+
+```json
+{
+  "source": "transcription-reunion.vtt",
+  "transcript": "Texte intégral de la rencontre..."
+}
+```
+
+Principes :
+
+- aucun texte de démonstration ou renseignement personnel n’est versionné;
+- chaque valeur non nulle doit être accompagnée d’un extrait justificatif;
+- les exemples généraux du courtier ne sont pas des faits client;
+- les informations ambiguës vont dans `points_a_valider`;
+- les conversations distinctes doivent être signalées;
+- les segments sont envoyés séquentiellement à Ollama afin d’éviter la
+  saturation du modèle local et les délais causés par cinq requêtes concurrentes;
+- de courtes fenêtres verbatim centrées sur les mots-clés CRM sont recopiées au
+  début du prompt; l’emploi, la profession et les études sont prioritaires sur
+  les autres catégories, sans que cette priorité constitue une validation;
+- l’assemblage vérifie que chaque preuve proposée apparaît réellement dans le
+  segment source;
+- une liste blanche rejette les champs hors contrat CRM, notamment les taux,
+  primes, taxes et frais;
+- les preuves issues d’un exemple ou d’une hypothèse explicite sont rejetées;
+- l’auto-description du courtier n’est jamais considérée comme une profession
+  client;
+- les objets produits dans `emploi`, `revenus`, `dettes`, `documents_requis`,
+  `taches` et `prochaines_actions` sont normalisés en candidats `faits` avant
+  cette vérification;
+- les formulations explicites de type « Nom lui est profession » disposent
+  d’une règle de haute précision qui conserve le sujet, la valeur et la preuve
+  verbatim lorsque le modèle omet le fait;
+- un segment dont la sortie Ollama n’est pas un JSON complet est signalé comme
+  invalide sans interrompre l’assemblage des autres segments;
+- les suggestions sans preuve vérifiable sont isolées dans
+  `suggestions_modele_non_validees` et ne sont pas utilisables par le CRM;
+- le workflow retourne une prévalidation et n’écrit rien dans PostgreSQL.
+
+Le workflow est importé, publié et actif dans n8n. Le test complet du 6 août
+2026 a traité 57 445 caractères en cinq segments, sans JSON invalide. Il a
+retourné huit faits prévalidés : la profession de Gabriel, le doctorat terminé
+de Marianne, cinq documents requis et l’envoi du courriel. Les champs hors
+contrat et les suggestions dont la preuve ne correspond pas au segment ont été
+rejetés. Le résultat exige toujours une validation humaine et aucune écriture
+PostgreSQL n’est exécutée. Les appels d’extraction disposent d’un délai maximal
+de 30 minutes pour permettre l’analyse locale de plusieurs segments par
+`mistral-nemo`. Son export est versionné dans
+[`n8n-workflows/crm_analyse_transcription_texte.json`](./n8n-workflows/crm_analyse_transcription_texte.json)
+et son prompt dans
+[`prompts/crm_extraction_segment.md`](./prompts/crm_extraction_segment.md).
+
+## Sécurité et isolation par représentant
+
+### Implanté dans la base
+
+- toutes les données CRM portent un `representant_id`;
+- les tables `clients`, `interactions`, `documents_requis` et `taches` ont la
+  Row-Level Security activée et forcée;
+- les politiques utilisent `app.role`, `app.representant_id` et
+  `app.client_id`;
+- les comptes applicatifs sont représentés par `app_users`.
+
+### État du déploiement local
+
+La migration de sécurité a été appliquée durablement le 6 août 2026. Les rôles
+`crm_service_owner` et `crm_runtime` existent, ne sont ni superutilisateurs ni
+`BYPASSRLS`, et le test transactionnel d’isolation entre représentants passe.
+
+La migration
+[`database/005_crm_runtime_security.sql`](./database/005_crm_runtime_security.sql)
+implante :
+
+- `crm_service_owner`, propriétaire non connecté des fonctions;
+- `crm_runtime`, compte d’exécution sans privilège élevé;
+- la révocation de l’accès direct de `crm_runtime` aux tables;
+- l’autorisation d’exécuter uniquement les fonctions `crm.*`.
+
+Le workflow manuel Tremblay utilise encore l’identifiant administratif local
+`Postgres account` et initialise le contexte `admin` dans la même requête que
+l’appel `crm.*`. Cette exception maintient le scénario de validation existant;
+elle ne doit pas être reprise par l’agent conversationnel. Le secret de
+`crm_runtime` doit rester hors du dépôt et son contexte représentant doit
+provenir d’une authentification fiable.
+
+Le mot de passe local de `crm_runtime` est maintenant défini et l’identifiant
+n8n `Postgres CRM Runtime` est associé aux outils et aux appels déterministes
+du MVP. Aucun secret n’est versionné.
+
+## Architecture cible du MVP documentaire
+
+Le MVP sera présenté avec une interface Web authentifiée. L’API existante
+Node.js/Express sera étendue; l’introduction d’un deuxième backend FastAPI
+n’est pas retenue à ce stade.
+
+```mermaid
+flowchart TD
+    User["Utilisateur / représentant"]
+    Web["Interface Web React<br/>conversation"]
+    Auth["Keycloak local<br/>OpenID Connect + PKCE"]
+    Identity["API Node.js<br/>JWT RS256 validé<br/>representant_id établi"]
+    Agent["Agent conversationnel<br/>intention et sélection des outils"]
+    Ollama["Ollama mistral-nemo<br/>compréhension et génération"]
+    Search["Tool<br/>Rechercher client"]
+    Documents["Tool<br/>Obtenir documents"]
+    Tasks["Tool<br/>Obtenir tâches"]
+    N8N["n8n<br/>orchestration"]
+    PG["PostgreSQL + RLS<br/>services métier crm.* en JSON"]
+    Rules["Moteur de checklist<br/>règles versionnées"]
+    DocApi["Module API documentaire"]
+    Queue["File persistante"]
+    Worker["Antivirus, extraction PDF<br/>OCRmyPDF / Tesseract"]
+    Objects["Stockage objet privé<br/>S3 / MinIO local"]
+    Review["Validation humaine"]
+
+    User --> Web --> Auth --> Identity --> Agent
+    Agent <-->|"intention et réponse naturelle"| Ollama
+    Agent --> Search
+    Agent --> Documents
+    Agent --> Tasks
+    Search --> N8N
+    Documents --> N8N
+    Tasks --> N8N
+    N8N -->|"app.role + representant_id validé"| PG
+    PG -->|"JSON autorisé par la RLS"| N8N
+    N8N --> Agent --> Web
+    Identity --> Rules --> PG
+    Identity --> DocApi --> Queue --> Worker
+    DocApi --> Objects
+    Worker --> Objects
+    Worker -->|"suggestion si ambigu"| Ollama
+    Worker --> Review --> DocApi --> PG
+```
+
+L’agent conversationnel est une couche logique contrôlée par l’API Node.js.
+Keycloak est la source d’identité. React utilise le flux Authorization Code
+avec PKCE et conserve le jeton uniquement en mémoire. Le navigateur transmet
+le JWT, mais ne choisit jamais le `representant_id`. Après validation de la
+signature RS256, de l’issuer, de l’audience `crm-api`, du rôle `representant`
+et de l’attribut `representant_id`, l’API propage l’identité aux outils. Chaque
+outil possède un contrat JSON précis et délègue son exécution à n8n; n8n appelle
+uniquement les fonctions PostgreSQL `crm.*`. L’agent et Ollama ne disposent
+d’aucun accès direct aux tables.
+
+Le module documentaire est d’abord développé dans le backend Node existant afin
+de conserver un déploiement simple. Le worker est un processus séparé pour ne
+pas bloquer les requêtes Web. Un PDF textuel est extrait directement; seules les
+pages numérisées passent par l’OCR. Ollama est une aide facultative après OCR,
+jamais le moteur OCR ni l’autorité de validation. Les événements validés sont
+transmis à n8n pour les rappels et intégrations.
+
+### Frontières de confiance
+
+| Couche | Peut faire | Ne doit jamais faire |
+| --- | --- | --- |
+| Keycloak | Authentifier, gérer les sessions, signer les rôles et attributs | Porter la logique métier CRM |
+| Interface Web | Utiliser OIDC/PKCE et envoyer le jeton d’accès | Choisir un `representant_id` arbitraire ou conserver le jeton sur disque |
+| API REST | Valider signature, issuer, audience, rôle et identité | Faire confiance à un identifiant fourni par le navigateur |
+| n8n | Orchestrer des appels de services | Porter les règles métier ou autoriser un accès |
+| PostgreSQL | Appliquer métier et isolation | Accepter une connexion applicative superutilisateur |
+| Ollama | Comprendre l’intention et formuler la réponse | Lire les tables ou décider des autorisations |
+| Moteur de checklist | Appliquer des règles versionnées et expliquer chaque exigence | Déduire une obligation depuis un prompt non validé |
+| API documentaire | Autoriser, versionner et auditer le cycle des fichiers | Exposer directement le stockage privé |
+| Worker OCR | Contrôler, extraire et produire des champs candidats | Écrire une donnée officielle sans validation |
+| Stockage objet | Conserver les fichiers chiffrés et privés | Remplacer l’audit ou la RLS des métadonnées |
+
+### Contrat conversationnel cible
+
+Entrée API minimale :
+
+```json
+{
+  "question": "Quels documents manquent pour Tremblay?"
+}
+```
+
+L’identité du représentant provient du jeton authentifié, pas du corps de la
+requête.
+
+Sortie minimale :
+
+```json
+{
+  "statut": "succes",
+  "reponse": "Il manque trois documents au dossier Tremblay...",
+  "clarification_requise": false
+}
+```
+
+Cas obligatoires :
+
+- aucun client trouvé : réponse explicite sans appel de dossier;
+- plusieurs clients : liste minimale et demande de clarification;
+- client unique : appel du service approprié;
+- question hors périmètre : réponse contrôlée;
+- service indisponible : erreur fonctionnelle sans fuite technique.
+
+## Limites connues
+
+1. Le workflow CRM utilise encore un `Manual Trigger` et le terme fixe
+   `Tremblay`.
+2. La première version du workflow `CRM - Agent conversationnel` est
+   versionnée et importée comme brouillon non publié depuis
+   [`n8n-workflows/crm_agent_conversationnel_mvp.json`](./n8n-workflows/crm_agent_conversationnel_mvp.json),
+   avec un déclencheur de discussion réservé aux essais locaux. Le routeur
+   déterministe couvre les clients récents, les documents et les tâches; le
+   chemin conversationnel conserve Ollama et les cinq outils. Tous les
+   appels PostgreSQL utilisent l’identifiant restreint
+   `Postgres CRM Runtime`.
+3. L’interface React et la route `POST /api/agent/messages` sont implantées.
+   Le contrat conversationnel `1.0` sépare la commande, le contexte minimal et
+   l’identité de sécurité; les champs historiques restent temporairement
+   transmis pour permettre une transition contrôlée.
+4. L’intégration Keycloak, la validation API et la propagation dynamique du
+   `representant_id` sont actives localement depuis le 2026-08-10. Le workflow
+   publié correspond à la version sécurisée du dépôt et ses huit accès
+   PostgreSQL initialisent `app.role` et `app.representant_id` dans la même
+   requête que le service `crm.*`.
+5. Les consultations de portefeuille utilisent des intentions et services
+   dédiés. `clients_documents_manquants` appelle de façon déterministe
+   `crm.obtenir_clients_documents_manquants(integer)`; le client actif est
+   ignoré pour cette question globale.
+6. Les trois variantes Tremblay doivent être dédoublonnées ou gérées par
+   clarification.
+7. L’enveloppe JSON conversationnelle `1.0` est implantée, mais les alias de
+   champs historiques restent transmis temporairement pendant la transition.
+8. Le workflow de transcription historique contient encore de la logique SQL
+   directe à migrer vers les services PostgreSQL.
+9. Les chemins structurés Clients récents, Documents, Documents manquants et
+   Tâches appellent
+   désormais leurs services PostgreSQL de façon déterministe. Les questions
+   libres utilisent encore l’agent Ollama; leurs temps de réponse dépendent du
+   modèle et de la machine locale.
+10. Dans l’éditeur n8n, le déclencheur de discussion de test peut être brièvement
+   désenregistré entre deux sessions. Il faut attendre l’état d’écoute avant
+   d’envoyer le premier message; ce comportement ne concerne pas les webhooks
+   publiés.
+
+### Interface Web MVP
+
+```mermaid
+flowchart LR
+    UI["React<br/>web/"]
+    API["API Node.js<br/>POST /api/agent/messages"]
+    ChatWebhook["n8n<br/>crm/agent-chat"]
+    RecentWebhook["n8n<br/>crm/clients-recents"]
+    DossierWebhook["n8n<br/>crm/dossier-client"]
+    Agent["Agent mistral-nemo"]
+    Recent["crm.obtenir_derniers_clients()"]
+    Dossier["crm.obtenir_dossier_client()"]
+    Services["Services crm.* JSON"]
+    RLS["PostgreSQL + RLS"]
+
+    UI -->|"message + sessionId<br/>intention rapide facultative"| API
+    API -->|"question libre"| ChatWebhook
+    API -->|"clients_recents"| RecentWebhook
+    API -->|"dossier_client"| DossierWebhook
+    API -->|"consultation_client + requested_fields"| DossierWebhook
+    ChatWebhook --> Agent
+    RecentWebhook --> Recent
+    DossierWebhook --> Dossier
+    Agent -->|"choix d’outil"| Services
+    Recent --> RLS
+    Dossier --> RLS
+    Services --> RLS
+    Recent --> RecentWebhook
+    Dossier --> DossierWebhook
+    Agent --> ChatWebhook
+    RecentWebhook -->|"réponse JSON"| API
+    DossierWebhook -->|"dossier JSON"| API
+    ChatWebhook -->|"réponse nettoyée"| API --> UI
+```
+
+La route serveur limite chaque message à 1 000 caractères, applique un délai
+d’attente et masque les erreurs internes. La route dossier accepte un nom ou un
+`code_client` et ne retourne aucun UUID. Les commandes « afficher le dossier »
+sont routées de façon déterministe. Les consultations de statut, coordonnées,
+revenu, mise de fonds et financement utilisent la même route avec une liste de
+champs autorisés; elles ne dépendent donc pas du choix d’outil par le modèle. Le
+build React est produit dans `web/dist` puis servi par la même API,
+ce qui évite CORS et empêche le navigateur de connaître l’adresse n8n.
+
+Le workflow `CRM - Agent Web - MVP` est versionné dans
+[`n8n-workflows/crm_agent_webhook_mvp.json`](./n8n-workflows/crm_agent_webhook_mvp.json).
+Il est publié temporairement dans l’environnement local isolé pour la
+validation du MVP. Le `representant_id` qu’il initialise est celui du jeu de
+démonstration et ne peut pas être fourni par le navigateur. Sans JWT, ce
+webhook ne doit pas être exposé sur Internet et doit être désactivé après la
+démonstration.
+
+### Agent conversationnel MVP versionné
+
+Le brouillon manuel versionné et importé sépare maintenant les demandes
+structurées du dialogue libre :
+
+```mermaid
+flowchart LR
+    Chat["Chat Trigger de test"] --> Detect["Détecter intention"]
+    Detect --> Router{"Router intention"}
+    Router -->|"clients_recents"| Recent["crm.obtenir_derniers_clients()"]
+    Router -->|"documents"| Docs["crm.obtenir_documents_client(code ou nom)"]
+    Router -->|"taches"| Tasks["crm.obtenir_taches_client(code ou nom)"]
+    Recent --> Format["Formater réponse déterministe"]
+    Docs --> Format
+    Tasks --> Format
+    Router -->|"conversation"| Agent["Agent Ollama + outils CRM"]
+```
+
+Les composants principaux sont les suivants :
+
+| Nœud | Responsabilité | Service autorisé |
+| --- | --- | --- |
+| `Détecter intention` | Normaliser le message et reconnaître clients récents, documents, tâches ou conversation | Aucun accès aux données |
+| `Router intention` | Diriger la demande vers l’un des quatre chemins | Aucun accès aux données |
+| `CRM - Derniers clients` | Exécuter systématiquement l’action `clients_recents` | `crm.obtenir_derniers_clients()` |
+| `CRM - Documents déterministe` | Résoudre le client et lire ses documents | `crm.obtenir_documents_client(text)` |
+| `CRM - Tâches déterministe` | Résoudre le client et lire ses tâches | `crm.obtenir_taches_client(text)` |
+| `Formater réponse déterministe` | Produire une réponse française stable et gérer absence ou ambiguïté | Aucun accès aux données |
+| `Agent conversationnel CRM` | Choisir l’outil et formuler une réponse française | Aucun accès aux données |
+| `Ollama - mistral-nemo` | Comprendre l’intention et générer la réponse | Aucun accès PostgreSQL |
+| `Tool - Rechercher client` | Résoudre un nom ou un terme sans exposer d’UUID | `crm.rechercher_clients_agent(text)` |
+| `Tool - Obtenir documents` | Résoudre le message ou le `code_client`, puis lire les documents | `crm.obtenir_documents_client(text)` |
+| `Tool - Obtenir tâches` | Résoudre le message ou le `code_client`, puis lire les tâches | `crm.obtenir_taches_client(text)` |
+| `Tool - Derniers clients` | Lister au maximum dix nouvelles fiches visibles | `crm.obtenir_derniers_clients()` |
+| `Tool - Obtenir dossier` | Afficher ou résumer le dossier complet d’un client | `crm.obtenir_dossier_client(text)` |
+
+Les appels ont été validés sous le rôle restreint `crm_runtime`, les plus
+récents le 9 août 2026. Ils initialisent le contexte RLS et appellent uniquement
+une fonction `crm.*`; ils ne lisent aucune table directement. Le test manuel a
+retourné les dix clients récents, trois documents dont deux manquants et une
+tâche ouverte pour Olivier Bergeron. Le chemin de conversation libre a aussi
+produit une réponse française via `mistral-nemo`. L’identifiant de
+représentant actuellement présent dans le brouillon est exclusivement une
+valeur de test local. Il sera remplacé par l’identité établie côté serveur
+après validation du JWT.
+
+### Jeu de démonstration local
+
+[`database/seeds/001_mvp_demo.sql`](./database/seeds/001_mvp_demo.sql) fournit
+12 clients fictifs et un petit ensemble d’interactions, documents et tâches.
+Les UUID réservés au jeu d’essai rendent le chargement réexécutable sans créer
+de doublons. Ce fichier n’est pas une migration de production et doit être
+chargé uniquement dans une base locale ou de démonstration avec
+[`scripts/charger_donnees_demo.ps1`](./scripts/charger_donnees_demo.ps1).
+
+## Priorités de livraison du MVP
+
+```mermaid
+flowchart LR
+    S1["1. Configurer crm_runtime dans n8n<br/>et fournir un contexte authentifié"]
+    S2["2. Entrée webhook/API<br/>question libre"]
+    S3["3. Détection intention<br/>et ambiguïtés"]
+    S4["4. API authentifiée<br/>identité représentant"]
+    S5["5. Interface Web<br/>démonstration"]
+    S6["6. Durcissement<br/>tests et observabilité"]
+
+    S1 --> S2 --> S3 --> S4 --> S5 --> S6
+```
+
+La valeur démontrable prioritaire est le parcours suivant :
+
+```text
+Connexion du représentant
+→ question en français
+→ recherche limitée à sa clientèle
+→ lecture du dossier par les services crm.*
+→ réponse naturelle produite par Ollama
+```
+
+## Sources de vérité techniques
+
+| Sujet | Source |
+| --- | --- |
+| Modèle relationnel | `database/001_crm_postgresql.sql` |
+| Relations dossier-clients | `database/015_relations_dossiers_clients.sql` |
+| Parcours hypothécaire | `database/016_parcours_hypothecaire.sql` et `docs/parcours-hypothecaire.md` |
+| RLS actuelle | `database/002_access_control.sql` |
+| Services CRM | `database/004_crm_services.sql` |
+| Rôle d’exécution préparé | `database/005_crm_runtime_security.sql` |
+| Test Tremblay | `tests/sql/tremblay_acceptance_test.sql` |
+| Test d’isolation | `tests/sql/representant_isolation_test.sql` |
+| Test dossier multi-clients | `tests/sql/relations_dossiers_clients_test.sql` |
+| Workflow CRM validé | `n8n-workflows/crm_etat_dossier_valide.json` |
+| Prompt CRM | `prompts/crm_resume_etat_dossier.md` |
+| Architecture documentaire | `docs/gestion-documentaire-ocr.md` |
+| Couverture de la checklist | `docs/checklist-documents-hypothecaires.md` |
+| Décision API/OCR | `docs/ADR/ADR-006-api-documentaire-ocr.md` |
+| Capacité Hostinger | `docs/capacite-hostinger.md` |
+| Déploiement Hostinger | `deploy/production/README.md` |
+| Contexte permanent | `CONTEXTE_PROJET.md` |
+
+---
+
+# Annexe — architecture historique de transcription
+
+Les sections suivantes documentent le pipeline historique en détail. En cas de
+contradiction, les principes et l’état courant décrits ci-dessus prévalent.
 
 ## Vue d'ensemble
 
@@ -763,3 +1460,13 @@ La migration correspondante est:
 ```text
 database/002_access_control.sql
 ```
+# Extension locale — agenda et rappels
+
+La plateforme comprend maintenant une frontière métier d’agenda : React appelle
+l’API authentifiée, l’API transmet uniquement l’identité issue de Keycloak à n8n,
+et n8n invoque les fonctions PostgreSQL `crm.consulter_agenda` et
+`crm.creer_evenement_agenda`. Les événements et rappels sont reliés au
+représentant, au client, au dossier et à l’étape hypothécaire. La RLS forcée
+garantit qu’un représentant ne consulte que ses propres éléments. L’interprétation
+des périodes usuelles (aujourd’hui, demain, semaine, mois, rappels échus) est
+déterministe; Ollama n’est pas dans le chemin critique de cette consultation.

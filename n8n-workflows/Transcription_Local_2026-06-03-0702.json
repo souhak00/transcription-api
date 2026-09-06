@@ -19,7 +19,9 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "{\n  \"model\": \"llama3.2:latest\",\n  \"stream\": false,\n  \"prompt\": \"Resume en une phrase: Cette reunion porte sur la creation d'un workflow n8n local avec transcription et synthese.\"\n}",
-        "options": {}
+        "options": {
+          "timeout": 1800000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
