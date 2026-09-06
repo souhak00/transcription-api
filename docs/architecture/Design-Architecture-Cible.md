@@ -575,6 +575,292 @@ l'ensemble de l'application.
 Les clients, dossiers, participants, parcours et règles hypothécaires devraient
 rester ensemble tant qu'ils forment le même noyau transactionnel.
 
+#### Service d'IA et de transcription — séparation actuelle et réplication
+
+Le terme « service d'IA et de transcription » recouvre trois charges différentes
+qui ne doivent pas être répliquées de la même manière :
+
+1. la dictée interactive courte, qui exige une faible latence;
+2. la transcription longue de réunions ou de fichiers, qui exige durabilité et
+   reprise;
+3. l'inférence Ollama, qui consomme beaucoup de mémoire et de CPU.
+
+##### Séparation actuellement implantée
+
+```mermaid
+flowchart LR
+    browser["React / MediaRecorder\nCapture audio"]
+
+    subgraph api["Conteneur transcription-api"]
+        http["API Node.js\nJWT, limites et routage"]
+        ffmpeg["FFmpeg\nConversion WAV 16 kHz"]
+        legacy["Pipeline de transcription longue\nVosk lancé en sous-processus"]
+        correction["Corrections CRM\nVocabulaire et noms clients"]
+    end
+
+    subgraph speech["Conteneur dictation-worker"]
+        vosk["Vosk small-fr\nModèle chargé une fois"]
+        lock["Verrou\nUne transcription active"]
+    end
+
+    subgraph orchestration["Conteneur n8n"]
+        router["Routage déterministe"]
+        prompts["Préparation du contexte minimal"]
+    end
+
+    ollama["Conteneur Ollama\nmistral-nemo"]
+    postgres[("PostgreSQL CRM")]
+
+    browser -->|"Audio + JWT"| http
+    http --> ffmpeg
+    ffmpeg -->|"WAV privé + secret partagé"| lock --> vosk
+    vosk --> correction --> browser
+    http --> legacy
+    http --> router
+    router --> postgres
+    router --> prompts --> ollama
+```
+
+La séparation actuelle comporte les caractéristiques suivantes :
+
+| Composant | Responsabilité actuelle | Isolation et limites |
+|---|---|---|
+| React | Capture une instruction de 30 secondes au maximum et permet sa correction avant envoi. | Aucun accès direct aux workers ou à Ollama. |
+| API Node.js | Authentifie avec Keycloak, limite l'audio à 2 Mo, crée les temporaires, exécute FFmpeg, appelle Vosk et corrige la transcription avec le vocabulaire CRM. | Conteneur frontal/backend limité à 4 Go; délai de dictée de 45 secondes; maximum de trois demandes en cours ou attente. |
+| Worker de dictée | Transcrit un WAV mono 16 bits à 16 kHz avec `vosk-model-small-fr-0.22`. | Réseau backend seulement, secret partagé, 512 Mo, 1 CPU, une transcription active; retourne `429` lorsqu'il est occupé. |
+| Pipeline long dans l'API | Convertit, segmente et transcrit séquentiellement les fichiers, puis écrit les résultats dans le volume `transcription_outputs`. | Vosk et FFmpeg sont encore présents dans l'image de l'API; cette charge n'est pas encore un service autonome. |
+| n8n | Route les intentions, appelle les fonctions CRM et prépare seulement le contexte nécessaire à l'IA. | Réseau privé; les questions déterministes peuvent contourner Ollama. |
+| Ollama | Exécute `mistral-nemo` pour les questions non déterministes, la formulation et certaines extractions. | Réseau backend seulement, volume de modèles local et limite mémoire de 9 Go. |
+
+La séparation est donc **complète pour l'inférence Ollama**, **largement réalisée
+pour la dictée courte**, mais **incomplète pour la transcription longue**. Le
+conteneur API contient encore FFmpeg, Python, Vosk et un modèle français complet;
+il peut lancer un sous-processus Vosk pour chaque transcription longue. Cette
+dette doit être retirée avant de répliquer efficacement l'API.
+
+##### Propriétés à préserver
+
+- aucun service externe d'IA ou de transcription n'est appelé à l'exécution;
+- les modèles doivent pouvoir être préchargés ou importés avant l'isolement du
+  réseau;
+- le navigateur communique seulement avec l'API authentifiée;
+- Ollama et les workers n'accèdent jamais directement aux tables CRM;
+- l'identité et le `representant_id` demeurent établis par l'API et la RLS;
+- les données déterministes continuent de contourner Ollama;
+- l'audio temporaire est supprimé après traitement, sauf politique explicite de
+  conservation chiffrée.
+
+##### Cible de séparation
+
+```mermaid
+flowchart LR
+    browser["React"]
+    edge["Caddy"]
+
+    subgraph app["Couche sans état"]
+        api1["API Node.js A"]
+        api2["API Node.js B"]
+        dispatcher["Répartiteur interne\nSanté, charge et backpressure"]
+    end
+
+    subgraph short["Pool de dictée interactive"]
+        voice1["Worker Vosk 1\nFFmpeg + small-fr"]
+        voice2["Worker Vosk 2\nFFmpeg + small-fr"]
+    end
+
+    subgraph batch["Transcription longue durable"]
+        jobs[("File PostgreSQL")]
+        media[("Stockage objet privé")]
+        batch1["Worker média 1"]
+        batch2["Worker média N"]
+    end
+
+    subgraph intelligence["Inférence locale"]
+        aigateway["Passerelle IA interne\nFile et circuit breaker"]
+        ai1["Ollama 1"]
+        ai2["Ollama N\nHôte distinct si requis"]
+    end
+
+    browser --> edge
+    edge --> api1
+    edge --> api2
+    api1 --> dispatcher
+    api2 --> dispatcher
+    dispatcher --> voice1
+    dispatcher --> voice2
+    api1 --> jobs
+    api2 --> jobs
+    jobs --> batch1
+    jobs --> batch2
+    batch1 --> media
+    batch2 --> media
+    api1 --> aigateway
+    api2 --> aigateway
+    aigateway --> ai1
+    aigateway --> ai2
+```
+
+Dans cette cible, l'API ne contient plus les moteurs lourds. Elle authentifie,
+valide, crée un travail ou choisit un worker, puis normalise la réponse. FFmpeg,
+Vosk et les modèles résident exclusivement dans les images de workers.
+
+##### Réplication de la dictée interactive
+
+La dictée courte reste un appel synchrone parce que l'utilisateur attend le
+texte dans le compositeur. Elle peut être répliquée avec plusieurs workers
+identiques, chacun chargeant son propre modèle Vosk une seule fois.
+
+Travaux requis :
+
+1. déplacer la conversion FFmpeg de l'API vers le worker afin que la charge CPU
+   suive les répliques;
+2. faire accepter au worker les formats audio autorisés, puis produire
+   intérieurement le WAV mono 16 kHz;
+3. retirer Python, Vosk, FFmpeg et le modèle de l'image finale de l'API lorsque
+   le pipeline historique est migré;
+4. remplacer `DICTATION_WORKER_URL` par une liste ou un répartiteur interne;
+5. publier pour chaque worker sa disponibilité, son nombre de travaux actifs et
+   le fait que son modèle est chargé;
+6. sélectionner un worker sain et libre, selon une politique « moins de travaux
+   actifs »;
+7. conserver la backpressure : retourner `429` avec `Retry-After` lorsque tous
+   les workers sont occupés;
+8. arrêter gracieusement un worker en le retirant du répartiteur avant de finir
+   sa requête active.
+
+Le DNS Docker seul ne doit pas être considéré comme un répartiteur de charge
+complet. Le répartiteur doit connaître la santé et l'occupation de chaque worker
+et appliquer les délais, reprises limitées et disjoncteurs.
+
+Chaque réplica Vosk de référence ajoute environ 512 Mo de mémoire et jusqu'à un
+cœur CPU. Sur le KVM 4, deux workers courts constituent une limite initiale
+raisonnable seulement si les mesures confirment que PostgreSQL, Keycloak, n8n et
+Ollama conservent assez de ressources.
+
+##### Réplication de la transcription longue
+
+La transcription de réunions ne doit pas conserver une connexion HTTP ouverte
+pendant plusieurs minutes. Elle doit utiliser le mécanisme de travaux durables :
+
+1. l'API stocke le média dans un stockage objet privé;
+2. elle crée une ligne idempotente dans `travaux_asynchrones`;
+3. elle retourne `202 Accepted` et un code de suivi;
+4. un worker réserve le travail avec `FOR UPDATE SKIP LOCKED`;
+5. le worker convertit, segmente et transcrit le fichier;
+6. les segments peuvent être attribués à plusieurs workers lorsque l'ordre et
+   l'assemblage final sont conservés;
+7. le résultat et la progression sont persistés;
+8. les travaux interrompus sont repris après expiration de leur verrou;
+9. l'interface consulte l'état ou reçoit ultérieurement une notification.
+
+Les workers longs peuvent être ajoutés ou retirés sans modifier l'API. Leur
+nombre est piloté par l'âge du plus ancien travail, la profondeur de la file, le
+temps réel de transcription et la saturation CPU. La concurrence doit commencer
+à un pour éviter que les traitements longs dégradent les interactions CRM.
+
+##### Réplication d'Ollama
+
+Ollama doit suivre une stratégie distincte parce que `mistral-nemo` consomme
+environ 8 à 12 Go lorsqu'il est chargé sur CPU. Deux répliques complètes ne sont
+pas réalistes sur le VPS KVM 4 de 16 Go en même temps que les autres services.
+
+L'ordre recommandé est :
+
+1. réduire les appels en conservant les branches déterministes sans LLM;
+2. limiter la taille du contexte, `num_ctx` et `num_predict` selon le cas d'usage;
+3. placer les demandes derrière une file de concurrence initiale égale à un;
+4. mettre en cache uniquement les résultats non sensibles et strictement
+   déterministes lorsque le contrat le permet;
+5. augmenter verticalement CPU/RAM ou déplacer Ollama vers une machine locale
+   dédiée;
+6. ajouter une deuxième instance uniquement lorsque la file et les SLO montrent
+   un besoin persistant;
+7. placer les instances derrière une passerelle IA privée qui connaît les
+   modèles disponibles, la santé, la charge et les délais;
+8. précharger la même version du modèle sur chaque nœud avant de lui envoyer du
+   trafic.
+
+Pour rester sans accès Internet, les nœuds Ollama supplémentaires doivent être
+sur un réseau privé ou un VPN contrôlé. Les modèles sont transférés durant le
+provisionnement, puis les appels d'inférence restent internes. Si les nœuds sont
+sur des hôtes distincts, TLS mutuel ou une authentification de service forte doit
+remplacer la confiance implicite du réseau Docker local.
+
+##### Calcul initial du nombre de workers
+
+Le besoin de concurrence peut être estimé par :
+
+```text
+concurrence nécessaire = plafond(
+  taux d'arrivée par seconde × durée moyenne de traitement
+  ÷ utilisation cible
+)
+```
+
+Avec une utilisation cible de 70 %, six dictées par minute et une durée moyenne
+de cinq secondes donnent `0,1 × 5 ÷ 0,7 = 0,72`, donc un worker. Douze dictées
+par minute donnent `0,2 × 5 ÷ 0,7 = 1,43`, donc deux workers. Les décisions
+réelles doivent utiliser les mesures p95 et non seulement les moyennes.
+
+##### Indicateurs et seuils de réplication
+
+| Charge | Indicateurs | Signal initial d'évolution |
+|---|---|---|
+| Dictée courte | attente p95, taux de `429`, durée p95, CPU du worker | attente p95 supérieure à 2 s, plus de 5 % de `429` ou CPU supérieur à 70 % pendant 15 min |
+| Transcription longue | profondeur, âge du plus ancien travail, temps réel de transcription, échecs | plus ancien travail supérieur à 5 min ou file croissante pendant 15 min |
+| Ollama | attente avant inférence, durée p95, CPU, RAM, erreurs et expirations | attente supérieure à 30 s, durée p95 supérieure au SLO, CPU supérieur à 85 % ou RAM supérieure à 80 % |
+
+Un dépassement ponctuel ne doit pas déclencher une nouvelle architecture. Le
+signal doit être persistant, observé pendant les heures normales et confirmé par
+la tendance de la file.
+
+##### Stratégie par palier
+
+| Palier | Topologie | Décision |
+|---|---|---|
+| 0 — Actuel | Une API, un Vosk court, un pipeline long dans l'API et un Ollama | Mesurer et corriger la dette de séparation. |
+| 1 — VPS optimisé | API allégée, un ou deux Vosk, une file longue et un Ollama | Cible adaptée à la bêta sur KVM 4. |
+| 2 — Workers dédiés | Transcription longue sur une deuxième machine privée | Séparer la charge CPU sans déplacer les données CRM. |
+| 3 — Hôte IA dédié | Ollama sur un serveur CPU puissant ou GPU local | Réduire la latence et libérer la RAM du VPS applicatif. |
+| 4 — Pool privé | Plusieurs Vosk, workers longs et Ollama derrière des passerelles internes | À déclencher seulement avec charge et SLO mesurés. |
+
+##### Tolérance aux pannes et sécurité
+
+- chaque requête porte un `request_id` et chaque traitement long un `job_id`;
+- les workers déclarent « prêt » seulement après chargement du modèle;
+- un disjoncteur retire temporairement un worker défaillant;
+- une nouvelle tentative synchrone n'est permise que si elle ne risque pas de
+  dupliquer une mutation;
+- les résultats longs sont idempotents et persistés avant acquittement;
+- les fichiers et textes temporaires sont chiffrés ou supprimés selon la
+  politique de rétention;
+- les workers restent inaccessibles depuis Internet;
+- le secret partagé est rotatif; le mTLS est privilégié entre plusieurs hôtes;
+- Ollama reçoit seulement le contexte minimal autorisé et aucun jeton Keycloak;
+- les journaux contiennent durées, tailles et codes d'erreur, jamais l'audio ou
+  la transcription complète.
+
+##### Feuille de travaux recommandée
+
+1. instrumenter la durée FFmpeg, la durée Vosk, l'attente, les `429`, la file
+   Ollama, le CPU et la mémoire;
+2. définir un contrat versionné de worker de transcription;
+3. déplacer FFmpeg et Vosk hors de l'API pour tous les flux;
+4. créer le répartiteur interne pour la dictée courte;
+5. implanter la file PostgreSQL et le stockage objet pour les fichiers longs;
+6. rendre les workers longs idempotents, reprenables et segmentables;
+7. ajouter un circuit breaker et une file de concurrence autour d'Ollama;
+8. tester deux workers Vosk sur le VPS avec un test de charge contrôlé;
+9. préparer une image et une procédure de provisionnement entièrement hors
+   ligne pour un nœud supplémentaire;
+10. déplacer Ollama ou ajouter des workers uniquement lorsque les seuils
+    précédents restent dépassés.
+
+La priorité immédiate n'est donc pas de dupliquer Ollama. Elle est de terminer
+la séparation du pipeline média, de mesurer chaque étape et de rendre les travaux
+longs durables. La réplication devient ensuite une opération de capacité, sans
+modifier le contrat utilisé par React ou les règles de sécurité du CRM.
+
 #### Conditions justifiant un nouveau service
 
 Un module ne doit être extrait que si au moins un signal mesurable apparaît :
