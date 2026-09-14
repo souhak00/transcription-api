@@ -17,6 +17,7 @@
     "access.token.lifespan": "600"
   },
   "defaultClientScopes": [
+    "basic",
     "web-origins",
     "acr",
     "roles",

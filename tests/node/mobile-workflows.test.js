@@ -53,6 +53,7 @@ test('le workflow SMTP refuse toute exécution tant que son verrou de configurat
 
 test('client mobile public : PKCE S256, URI exacte, pas de secret ni mot de passe direct', async () => {
   const client = JSON.parse(await readFile(new URL('../../keycloak/client-crm-mobile.json', import.meta.url), 'utf8'));
+  assert.ok(client.defaultClientScopes.includes('basic'));
   assert.equal(client.publicClient, true);
   assert.equal(client.attributes['pkce.code.challenge.method'], 'S256');
   assert.deepEqual(client.redirectUris, ['com.toniaconseil.voicenotes:/oauth2redirect']);
