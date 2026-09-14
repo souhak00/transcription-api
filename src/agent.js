@@ -15,7 +15,7 @@ const GENERIC_CLIENT_REQUEST = /^(?:quels?|quelles?|montre|affiche|donne|liste)?
 const ANAPHORA_PATTERN = /\b(?:ses|son|sa|lui|elle|il|ce client|ce dossier|celui-ci|celle-ci)\b/i;
 const DOCUMENT_TERM_PATTERN = /\b(?:documents?|pi[eè]ces?|papiers?|paperasse|relev[eé]s?)\b/i;
 const MISSING_TERM_PATTERN = /\b(?:manquants?|manquantes?|en attente|[àa] fournir|[àa] recevoir|[àa] r[eé]clamer|reste)\b/i;
-const PORTFOLIO_TERM_PATTERN = /\b(?:quels? clients?|quelles? personnes?|qui|portefeuille|liste des clients|montre\w*\s+les clients|affiche\w*\s+les clients)\b/i;
+const PORTFOLIO_TERM_PATTERN = /\b(?:quels? clients?|quels? sont (?:les|mes|nos) (?:clients?|dossiers?)|quelles? personnes?|qui|portefeuille|liste des clients|montre\w*\s+les clients|affiche\w*\s+les clients)\b/i;
 const PORTFOLIO_LIST_PATTERN = /\b(?:tous?|toutes?|chaque|liste|clients?|dossiers?|portefeuille)\b/i;
 const PORTFOLIO_ACTION_PATTERN = /\b(?:affich\w*|montr\w*|list\w*|class\w*|tri\w*|priori\w*|relanc\w*|plus gros|plus grand|revenu (?:le )?plus|tableau|tableur|export\w*)\b/i;
 // Une nouvelle demande globale (par exemple « affiche les dossiers en analyse »)
@@ -433,6 +433,8 @@ export function normalizeAgentRequest(body = {}, options = {}) {
   const explicitIntent = typeof body.intent === "string" && body.intent.trim()
     ? body.intent.trim()
     : null;
+  // This is interaction metadata only; it never grants access to CRM data.
+  const inputSource = body.inputSource === "dictation" ? "dictation" : "text";
   let intent = explicitIntent ?? AGENT_INTENTS.CONVERSATION;
   let interpretationSource = explicitIntent ? "explicit" : "ai_fallback";
   let confidence = explicitIntent ? 1 : 0.5;
@@ -502,16 +504,21 @@ export function normalizeAgentRequest(body = {}, options = {}) {
     AGENT_INTENTS.CLIENT_DOCUMENTS,
     AGENT_INTENTS.CLIENT_TASKS
   ].includes(intent);
-  const clarificationRequired = needsClient
+  const missingClient = needsClient
     && !clientReference
     && (
       GENERIC_CLIENT_REQUEST.test(message)
       || ANAPHORA_PATTERN.test(message)
       || intent === AGENT_INTENTS.CLIENT_INTERACTION_SUMMARY
     );
+  // Unrecognized speech must not become a free-form model answer. The user
+  // can correct/rephrase the draft; never guess a status or a client's name.
+  const unrecognizedDictation = inputSource === "dictation" && intent === AGENT_INTENTS.CONVERSATION;
+  const clarificationRequired = missingClient || unrecognizedDictation;
 
   return {
     message,
+    inputSource,
     sessionId,
     requestId: createRequestId(body.requestId),
     intent,
@@ -525,7 +532,8 @@ export function normalizeAgentRequest(body = {}, options = {}) {
     context: { activeClient, lastResultCodes: contextInput.lastResultCodes },
     interpretationSource,
     confidence,
-    clarificationRequired
+    clarificationRequired,
+    clarificationReason: unrecognizedDictation ? "unrecognized_dictation" : missingClient ? "missing_client" : null
   };
 }
 
@@ -978,6 +986,10 @@ export async function requestPortfolioData(query = {}, options = {}) {
   const status = String(query.status ?? "").trim().slice(0, 80);
   const followUp = query.followUp === true;
   const limit = Math.max(1, Math.min(Number(query.limit) || 100, 100));
+  const selectionCodes = Array.isArray(query.selectionCodes)
+    ? [...new Set(query.selectionCodes.map(value => String(value ?? '').trim().toUpperCase())
+      .filter(value => /^CLI-[0-9]{4}-[A-Z]{2}-[0-9]{6}$/.test(value)))].slice(0, 20)
+    : [];
   const allowedSortFields = new Set(["priority_score", "updated_at"]);
   const sort = Array.isArray(query.sort) ? query.sort
     .filter((item) => allowedSortFields.has(item?.field))
@@ -1002,12 +1014,13 @@ export async function requestPortfolioData(query = {}, options = {}) {
         security_context: { representant_id: representativeId },
         command: {
           parameters: {
+            scope: selectionCodes.length ? "selection" : "portfolio",
             filters: { ...(status ? { statut: status } : {}), ...(followUp ? { a_relancer: true } : {}) },
             sort,
             limit,
             format: "json"
           },
-          conversation_context: { last_result_codes: [] },
+          conversation_context: { last_result_codes: selectionCodes },
           security_context: { representant_id: representativeId }
         }
       }),
@@ -1041,6 +1054,9 @@ export async function requestAgentReply(input, options = {}) {
   const representativeId = normalizeRepresentativeId(input.representativeId);
 
   if (input.clarificationRequired) {
+    if (input.clarificationReason === "unrecognized_dictation") {
+      return "Je n’ai pas reconnu une demande CRM précise dans cette dictée. Vérifiez le texte transcrit ou reformulez, par exemple : « Affiche-moi les clients dont le dossier est en analyse ». Aucune recherche n’a été lancée.";
+    }
     return "De quel client souhaitez-vous consulter les informations?";
   }
 

@@ -65,7 +65,7 @@ export function buildAgentResponse(input, reply, options = {}) {
     clarification: input.clarificationRequired
       ? {
           required: true,
-          missing_fields: ["client_reference"],
+          missing_fields: [input.clarificationReason === "unrecognized_dictation" ? "message" : "client_reference"],
           question: reply
         }
       : null,

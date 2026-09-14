@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm.toniaconseil.com/contracts/mobile/conversation-note-v1.schema.json",
+  "title": "Note de conversation mobile",
+  "description": "Contrat commun aux clients Android et iOS. Le chemin local du fichier audio n'est jamais transmis.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "id",
+    "createdAt",
+    "updatedAt",
+    "status",
+    "revision",
+    "consent",
+    "content",
+    "audio"
+  ],
+  "properties": {
+    "contractVersion": {
+      "const": "mobile-conversation-note/1.0"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": ["DRAFT", "REVIEWED", "FINALIZED"]
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["confirmed"],
+      "properties": {
+        "confirmed": { "type": "boolean" },
+        "confirmedAt": { "type": ["string", "null"], "format": "date-time" },
+        "method": {
+          "enum": ["VERBAL", "WRITTEN", "IMPORTED_WITH_CONSENT", "UNKNOWN"]
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "clientReference", "transcript", "summary", "followUpEmail"],
+      "properties": {
+        "title": { "type": "string", "maxLength": 200 },
+        "clientReference": { "type": "string", "maxLength": 160 },
+        "transcript": { "type": "string", "maxLength": 500000 },
+        "summary": { "type": "string", "maxLength": 50000 },
+        "followUpEmail": { "type": "string", "maxLength": 50000 }
+      }
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["durationMs", "mediaType", "sha256", "sizeBytes"],
+      "properties": {
+        "durationMs": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+        "mediaType": { "enum": ["audio/mp4", "audio/m4a", "audio/aac"] },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "sizeBytes": { "type": "integer", "minimum": 1, "maximum": 26214400 }
+      }
+    }
+  }
+}

@@ -14,6 +14,7 @@ import {
   requestPortfolioData
 } from "./agent.js";
 import { AGENT_INTENTS, buildAgentResponse } from "./contracts.js";
+import { buildCalendarLinks } from "../shared/navigation.js";
 import {
   createCalendarEvent,
   formatCalendarReply,
@@ -29,6 +30,7 @@ import {
 } from "./dictation.js";
 import {
   AuthenticationError,
+  authenticateMobileRequest,
   authenticateIdentity,
   authenticateRequest,
   loadKeycloakConfig
@@ -45,6 +47,9 @@ import {
 import { loadEnvFile } from "./env.js";
 import { transcribeMedia } from "./transcribe.js";
 import { readRequestBuffer, saveBase64File, saveMultipartFile } from "./upload.js";
+import { createMobileService, MobileError } from "./mobile.js";
+import { authorizeMobileClient, listMobileClients } from "./mobile-clients.js";
+import { createMobileAuditLogger } from "./mobile-audit.js";
 
 // Charge les options locales avant de definir le port et le moteur a employer.
 await loadEnvFile();
@@ -57,6 +62,8 @@ const keycloakConfig = loadKeycloakConfig();
 const keycloakAdminConfig = loadKeycloakAdminConfig();
 const dictationConfig = loadDictationConfig();
 const transcribeDictation = createDictationService({ config: dictationConfig });
+const mobileService = createMobileService({ authorizeClient: authorizeMobileClient,
+  audit: createMobileAuditLogger({ directory: process.env.MOBILE_AUDIT_DIR ?? "outputs/mobile-audit" }) });
 const dictationClientNamesCache = new Map();
 const keycloakBrowserConfig = {
   url: String(process.env.KEYCLOAK_PUBLIC_URL ?? "http://localhost:8080").replace(/\/+$/, ""),
@@ -202,6 +209,33 @@ const server = http.createServer(async (request, response) => {
     }
 
     // Configuration OIDC publique nécessaire au navigateur; aucun secret n’est exposé.
+    if (request.method === "GET" && url.pathname === "/api/mobile/config") {
+      sendJson(response, 200, { ...mobileService.configured, issuer: `${keycloakBrowserConfig.url}/realms/${keycloakBrowserConfig.realm}`, clientId: "crm-mobile", redirectUri: "com.toniaconseil.voicenotes:/oauth2redirect" });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/mobile/session") {
+      const identity = await authenticateMobileRequest(request, keycloakConfig);
+      sendJson(response, 200, { name: identity.representantName, email: identity.email, role: identity.role });
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/mobile/clients") {
+      const identity = await authenticateMobileRequest(request, keycloakConfig);
+      const clients = await listMobileClients(identity.representantId, url.searchParams.get("query") ?? "");
+      sendJson(response, 200, { clients });
+      return;
+    }
+    if (url.pathname === "/api/mobile/jobs" || url.pathname.startsWith("/api/mobile/jobs/")) {
+      const identity = await authenticateMobileRequest(request, keycloakConfig);
+      if (request.method === "POST" && url.pathname === "/api/mobile/jobs") {
+        let size = 0; const chunks = [];
+        for await (const chunk of request) { size += chunk.length; if (size > 3 * 1024 * 1024) throw new MobileError("Requête mobile trop volumineuse.", 413); chunks.push(chunk); }
+        let body; try { body = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new MobileError("JSON mobile invalide."); }
+        sendJson(response, 202, await mobileService.submit(identity, body, request.socket.remoteAddress));
+      } else if (request.method === "GET") {
+        sendJson(response, 200, await mobileService.get(identity, url.pathname.slice("/api/mobile/jobs/".length)));
+      } else sendJson(response, 405, { error: "Méthode non autorisée." });
+      return;
+    }
     if (request.method === "GET" && url.pathname === "/api/auth/config") {
       sendJson(response, 200, keycloakBrowserConfig);
       return;
@@ -359,6 +393,9 @@ const server = http.createServer(async (request, response) => {
           requested_fields: input.requestedFields,
           scope: input.scope,
           result_codes: resultCodes,
+          navigation: calendarData ? buildCalendarLinks(calendarData.events, {
+            limit: input.calendar?.period === "upcoming" ? 1 : null
+          }) : [],
           ...(calendarData ? { calendar: calendarData } : {}),
           ...(calendarDraft ? { calendar_draft: calendarDraft } : {})
         }
@@ -496,6 +533,7 @@ const server = http.createServer(async (request, response) => {
       || error instanceof AuthenticationError
       || error instanceof KeycloakAdminError
       || error instanceof DictationError
+      || error instanceof MobileError
       ? error.statusCode
       : 500;
     // Les erreurs de l'orchestrateur sont volontairement nettoyees avant retour.

@@ -37,6 +37,7 @@ test("extractRepresentative exige le rôle et le representant_id signé", () => 
     extractRepresentative({
       sub: "keycloak-user-id",
       email: "representant@example.test",
+      email_verified: true,
       name: "Représentant MVP",
       representant_id: representativeId,
       realm_access: { roles: ["representant"] }
@@ -44,6 +45,7 @@ test("extractRepresentative exige le rôle et le representant_id signé", () => 
     {
       subject: "keycloak-user-id",
       email: "representant@example.test",
+      emailVerified: true,
       role: "representant",
       representantId: representativeId,
       representantName: "Représentant MVP"
@@ -51,7 +53,7 @@ test("extractRepresentative exige le rôle et le representant_id signé", () => 
   );
 
   assert.throws(
-    () => extractRepresentative({ representant_id: representativeId, realm_access: { roles: [] } }),
+    () => extractRepresentative({ sub: "unauthorized-user", representant_id: representativeId, realm_access: { roles: [] } }),
     (error) => error instanceof AuthenticationError && error.statusCode === 403
   );
 });
@@ -61,12 +63,14 @@ test("extractIdentity accepte un administrateur sans representant_id", () => {
     extractIdentity({
       sub: "admin-keycloak-id",
       email: "admin@example.test",
+      email_verified: true,
       name: "Administration CRM",
       realm_access: { roles: ["admin"] }
     }),
     {
       subject: "admin-keycloak-id",
       email: "admin@example.test",
+      emailVerified: true,
       role: "admin",
       representantId: null,
       representantName: "Administration CRM"
@@ -74,7 +78,7 @@ test("extractIdentity accepte un administrateur sans representant_id", () => {
   );
 
   assert.throws(
-    () => extractRepresentative({ realm_access: { roles: ["admin"] } }),
+    () => extractRepresentative({ sub: "admin-keycloak-id", realm_access: { roles: ["admin"] } }),
     (error) => error instanceof AuthenticationError && error.statusCode === 403
   );
 });
@@ -123,4 +127,15 @@ test("verifyAccessToken impose issuer, audience et RS256", async () => {
   assert.equal(user.representantId, representativeId);
   assert.deepEqual(receivedOptions.algorithms, ["RS256"]);
   assert.equal(receivedOptions.audience, "crm-api");
+});
+
+test("verifyAccessToken peut limiter le jeton au client mobile", async () => {
+  await assert.rejects(verifyAccessToken("jeton-web", {
+    configured: true, issuer: "https://identity.example.test/realms/crm", audience: "crm-api", jwksUrl: "https://identity.example.test/certs"
+  }, {
+    authorizedParty: "crm-mobile", keySet: {}, jwtVerifyImplementation: async () => ({ payload: {
+      sub: "keycloak-user-id", azp: "crm-web", representant_id: representativeId,
+      realm_access: { roles: ["representant"] }
+    } })
+  }), error => error instanceof AuthenticationError && error.statusCode === 403);
 });

@@ -52,11 +52,16 @@ export function extractIdentity(payload = {}) {
     ? payload.realm_access.roles
     : [];
   const representantId = String(payload.representant_id ?? "");
+  const subject = String(payload.sub ?? "").trim();
+  if (!subject || subject.length > 256) {
+    throw new AuthenticationError("Identité du compte invalide.");
+  }
 
   if (realmRoles.includes("admin")) {
     return {
-      subject: String(payload.sub ?? ""),
+      subject,
       email: String(payload.email ?? ""),
+      emailVerified: payload.email_verified === true,
       role: "admin",
       representantId: null,
       representantName: String(payload.name ?? payload.preferred_username ?? "Administrateur")
@@ -68,8 +73,9 @@ export function extractIdentity(payload = {}) {
   }
 
   return {
-    subject: String(payload.sub ?? ""),
+    subject,
     email: String(payload.email ?? ""),
+    emailVerified: payload.email_verified === true,
     role: "representant",
     representantId,
     representantName: String(payload.name ?? payload.preferred_username ?? "Représentant")
@@ -89,6 +95,9 @@ export async function verifyIdentityToken(token, config, options = {}) {
       audience: config.audience,
       algorithms: ["RS256"]
     });
+    if (options.authorizedParty && payload.azp !== options.authorizedParty) {
+      throw new AuthenticationError("Ce jeton n’est pas destiné à cette application.", 403);
+    }
     return extractIdentity(payload);
   } catch (error) {
     if (error instanceof AuthenticationError) throw error;
@@ -109,6 +118,9 @@ export async function verifyAccessToken(token, config, options = {}) {
       audience: config.audience,
       algorithms: ["RS256"]
     });
+    if (options.authorizedParty && payload.azp !== options.authorizedParty) {
+      throw new AuthenticationError("Ce jeton n’est pas destiné à cette application.", 403);
+    }
     return extractRepresentative(payload);
   } catch (error) {
     if (error instanceof AuthenticationError) throw error;
@@ -124,4 +136,13 @@ export async function authenticateRequest(request, config, options = {}) {
 export async function authenticateIdentity(request, config, options = {}) {
   const token = readBearerToken(request.headers.authorization);
   return verifyIdentityToken(token, config, options);
+}
+
+export async function authenticateMobileRequest(request, config, options = {}) {
+  const token = readBearerToken(request.headers.authorization);
+  const identity = await verifyAccessToken(token, config, { ...options, authorizedParty: "crm-mobile" });
+  if (identity.emailVerified !== true || !identity.email.trim()) {
+    throw new AuthenticationError("Un courriel professionnel vérifié est requis pour Tonia mobile.", 403);
+  }
+  return identity;
 }

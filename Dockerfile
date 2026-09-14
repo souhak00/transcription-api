@@ -5,6 +5,7 @@ WORKDIR /web
 COPY web/package*.json ./
 RUN npm ci
 COPY web ./
+COPY shared /shared
 RUN npm run build
 
 # Image de base fournissant Node.js, necessaire au serveur HTTP.
@@ -38,6 +39,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY src ./src
+COPY shared ./shared
 COPY scripts ./scripts
 COPY README.md ./
 COPY --from=web-builder /web/dist ./web/dist
