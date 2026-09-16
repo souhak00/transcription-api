@@ -129,7 +129,8 @@ export function createMobileService({ directory = 'outputs/mobile-jobs', env = p
   const analysisUrl = env.N8N_MOBILE_ANALYSIS_WEBHOOK_URL ?? '';
   const mailUrl = (preview ? env.N8N_MOBILE_TEST_EMAIL_WEBHOOK_URL : env.N8N_MOBILE_EMAIL_WEBHOOK_URL) ?? '';
   const summaryUrl = env.N8N_MOBILE_SUMMARY_WEBHOOK_URL ?? '';
-  const configured = { analysis: !preview && Boolean(analysisUrl && token), email: !preview && Boolean(mailUrl && token), summaryEmail: !preview && Boolean(summaryUrl && mailUrl && token), clientAssociation: true,
+  const liveEmailReleased = env.MOBILE_EMAIL_RELEASE === 'approved';
+  const configured = { analysis: !preview && Boolean(analysisUrl && token), email: !preview && liveEmailReleased && Boolean(mailUrl && token), summaryEmail: !preview && liveEmailReleased && Boolean(summaryUrl && mailUrl && token), clientAssociation: true,
     ...(preview ? { deliveryMode: 'MAILPIT', summaryPreview: Boolean(summaryUrl && mailUrl && token) } : {}) };
   const canProcess = input => (input.deliveryMode ?? 'LIVE') === deliveryMode && (input.kind === 'SUMMARY_EMAIL' ? (preview ? configured.summaryPreview : configured.summaryEmail) : input.kind === 'EMAIL' ? configured.email : configured.analysis);
   let running = false;

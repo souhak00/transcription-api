@@ -1,0 +1,80 @@
+{
+  "id": "ToniaCourrielTestLocalV1",
+  "name": "Tonia — TEST courriel local (aucun envoi réel)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "Manuel",
+      "name": "Lancer le test fictif",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {}
+    },
+    {
+      "id": "Fictif",
+      "name": "Donnees fictives",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "parameters": {
+        "jsCode": "// Recette du transport seulement : aucune donnée client ni appel au LLM.\nreturn [{json:{recipient:'recette@example.invalid',subject:'Tonia — TEST LOCAL — synthèse fictive',text:`TEST LOCAL — aucun courriel externe.\n\nSYNTHÈSE À RELIRE (fictive, non générée par le LLM)\nLe représentant doit rappeler la personne fictive pour compléter les renseignements.\n\nTRANSCRIPTION FICTIVE\nBonjour, je souhaite discuter de mon projet. Merci de me rappeler demain.\n\nNOTES PERSONNELLES FICTIVES\nVérifier les disponibilités avant de proposer une rencontre.`}}];"
+      }
+    },
+    {
+      "id": "Verifier",
+      "name": "Verifier recette",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "parameters": {
+        "jsCode": "const b = $input.first().json;\nif (!b || typeof b.recipient !== 'string' || b.recipient.trim() !== b.recipient || b.recipient.length > 254 || !/^[a-zA-Z0-9._+-]+@example\\.invalid$/.test(b.recipient) || typeof b.subject !== 'string' || !b.subject.startsWith('Tonia — TEST LOCAL — ') || /[\\r\\n]/.test(b.subject) || b.subject.length > 200 || typeof b.text !== 'string' || !b.text.trim() || b.text.length > 650000) throw new Error('Test local : seules les données fictives et une adresse @example.invalid sont autorisées.');\nreturn [{json:{recipient:b.recipient,subject:b.subject,text:b.text}}];"
+      }
+    },
+    {
+      "id": "SMTP",
+      "name": "Postfix vers Mailpit uniquement",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [720, 0],
+      "retryOnFail": false,
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "Tonia TEST LOCAL <tonia@example.invalid>",
+        "toEmail": "={{ $json.recipient }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {"appendAttribution": false, "allowUnauthorizedCerts": false}
+      },
+      "credentials": {"smtp": {"id": "ToniaSmtpLocalTestV1", "name": "Tonia SMTP TEST LOCAL — aucun envoi réel"}}
+    },
+    {
+      "id": "Receipt",
+      "name": "Confirmer acceptation locale",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 0],
+      "parameters": {
+        "jsCode": "const info = $input.first().json;\nconst recipient = $('Verifier recette').first().json.recipient;\nif (!info.messageId || !Array.isArray(info.accepted) || !info.accepted.includes(recipient) || (Array.isArray(info.rejected) && info.rejected.length)) throw new Error('Acceptation SMTP locale non confirmée.');\nreturn [{json:{mode:'TEST_LOCAL',acceptedLocally:true,messageId:info.messageId,externalDelivery:false,mailpitUrl:'http://localhost:8025',notice:'Accepté par Postfix. Vérifier ensuite la capture dans Mailpit. Aucun envoi externe.'}}];"
+      }
+    }
+  ],
+  "connections": {
+    "Lancer le test fictif": {"main": [[{"node": "Donnees fictives", "type": "main", "index": 0}]]},
+    "Donnees fictives": {"main": [[{"node": "Verifier recette", "type": "main", "index": 0}]]},
+    "Verifier recette": {"main": [[{"node": "Postfix vers Mailpit uniquement", "type": "main", "index": 0}]]},
+    "Postfix vers Mailpit uniquement": {"main": [[{"node": "Confirmer acceptation locale", "type": "main", "index": 0}]]}
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "executionTimeout": 60
+  },
+  "pinData": {},
+  "tags": []
+}

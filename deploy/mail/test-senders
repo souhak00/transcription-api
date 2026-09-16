@@ -1,0 +1,2 @@
+/^tonia@example\.invalid$/ OK
+/.*/ REJECT Recette Tonia : expediteur fictif uniquement

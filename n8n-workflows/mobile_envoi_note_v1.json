@@ -1,0 +1,160 @@
+{
+  "id": "ToniaMobileEnvoiV1",
+  "name": "Tonia mobile - envoi validé (à configurer)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "Recevoir",
+      "name": "Recevoir",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "8f12644a-0c0e-43ad-a441-7424ec2f85d3",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mobile/envoyer-note",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "ToniaMobileHeaderAuthV1",
+          "name": "Tonia mobile API privée"
+        }
+      }
+    },
+    {
+      "id": "Verifier envoi",
+      "name": "Verifier envoi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Deuxième verrou, indépendant du conteneur SMTP.\nconst expeditionEnabled = $env.MOBILE_EMAIL_RELEASE === 'approved';\nif (!expeditionEnabled) throw new Error('Boîte d’expédition non configurée. Aucun envoi.');\nconst b = $input.first().json.body;\nconst uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst keys = Object.keys(b?.association ?? {}).sort().join(',');\nconst associationOk = b?.association?.state === 'UNASSIGNED' ? keys === 'state' : b?.association?.state === 'ASSIGNED' && keys === 'clientCode,state' && /^CLI-[0-9]{4}-[A-Z]{2}-[0-9]{6}$/.test(b.association.clientCode ?? '');\nif (!b || !/^[a-f0-9]{64}$/.test(b.jobId ?? '') || !uuid.test(b.representativeId ?? '') || !associationOk || typeof b.recipient !== 'string' || b.recipient.length > 254 ||\n!/^[^\\s@,;<>]+@[^\\s@,;<>]+\\.[^\\s@,;<>]+$/.test(b.recipient) || typeof b.subject !== 'string' ||\n!/^Tonia — (?:fiche validée|synthèse à relire) [a-f0-9]{8}$/.test(b.subject) || typeof b.text !== 'string' || !b.text.trim() || b.text.length > 650000) throw new Error('Courriel invalide.');\nreturn [{json:{recipient:b.recipient,subject:b.subject,text:b.text}}];"
+      }
+    },
+    {
+      "id": "Expedier SMTP",
+      "name": "Expedier SMTP",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        550,
+        0
+      ],
+      "retryOnFail": false,
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "Tonia <administration@toniaconseil.com>",
+        "toEmail": "={{ $json.recipient }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {
+          "appendAttribution": false,
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "ToniaSmtpOutboundV1",
+          "name": "Tonia SMTP SORTANT — interne VPS"
+        }
+      }
+    },
+    {
+      "id": "Verifier acceptation",
+      "name": "Verifier acceptation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const info = $input.first().json;\nconst recipient = $('Verifier envoi').first().json.recipient;\nif (typeof info.messageId !== 'string' || !info.messageId || !Array.isArray(info.accepted) ||\n!info.accepted.some(address => typeof address === 'string' && address.toLowerCase() === recipient.toLowerCase()) ||\n(Array.isArray(info.rejected) && info.rejected.length)) throw new Error('Acceptation SMTP non confirmée.');\nreturn [{json:{accepted:true,messageId:info.messageId}}];"
+      }
+    },
+    {
+      "id": "Repondre",
+      "name": "Repondre",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Recevoir": {
+      "main": [
+        [
+          {
+            "node": "Verifier envoi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier envoi": {
+      "main": [
+        [
+          {
+            "node": "Expedier SMTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expedier SMTP": {
+      "main": [
+        [
+          {
+            "node": "Verifier acceptation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier acceptation": {
+      "main": [
+        [
+          {
+            "node": "Repondre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "executionTimeout": 300
+  },
+  "pinData": {},
+  "tags": []
+}

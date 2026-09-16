@@ -126,6 +126,15 @@ services:
       N8N_CALENDAR_WRITE_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agenda/evenements
       N8N_CALENDAR_UPDATE_WEBHOOK_URL: http://host.docker.internal:5678/webhook/crm/agenda/evenements/modifier
       AGENT_TIMEOUT_MS: 120000
+      # Connecteur mobile facultatif. Laisser vide tant que les workflows privés ne sont pas configurés.
+      N8N_MOBILE_ANALYSIS_WEBHOOK_URL: ${N8N_MOBILE_ANALYSIS_WEBHOOK_URL:-}
+      N8N_MOBILE_SUMMARY_WEBHOOK_URL: ${N8N_MOBILE_SUMMARY_WEBHOOK_URL:-}
+      N8N_MOBILE_EMAIL_WEBHOOK_URL: ${N8N_MOBILE_EMAIL_WEBHOOK_URL:-}
+      MOBILE_EMAIL_RELEASE: ${MOBILE_EMAIL_RELEASE:-blocked}
+      MOBILE_DELIVERY_MODE: ${MOBILE_DELIVERY_MODE:-LIVE}
+      N8N_MOBILE_TEST_EMAIL_WEBHOOK_URL: ${N8N_MOBILE_TEST_EMAIL_WEBHOOK_URL:-}
+      N8N_MOBILE_TOKEN: ${N8N_MOBILE_TOKEN:-}
+      MOBILE_AUDIT_DIR: ${MOBILE_AUDIT_DIR:-outputs/mobile-audit}
       # L’API valide les jetons Keycloak et extrait le representant_id signé.
       KEYCLOAK_ISSUER: ${KEYCLOAK_ISSUER:-http://localhost:8080/realms/crm-local}
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/crm-local/protocol/openid-connect/certs

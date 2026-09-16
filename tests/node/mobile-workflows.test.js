@@ -21,6 +21,14 @@ test('workflows privés désactivés, authentifiés et sans archivage des conten
   }
 });
 
+test('les webhooks mobiles ont un identifiant stable publiable par n8n', async () => {
+  for (const file of ['mobile_synthese_segment_v1', 'mobile_capture_mailpit_v1', 'mobile_envoi_note_v1']) {
+    const value = await workflow(file);
+    const webhook = value.nodes.find(node => node.type === 'n8n-nodes-base.webhook');
+    assert.match(webhook.webhookId, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+  }
+});
+
 test('analyse privée : sources comme données, champs bornés, pas d’action métier', async () => {
   const value = await workflow('mobile_analyse_segment_v1');
   const node = value.nodes.find(n => n.name === 'Preparer');
@@ -39,12 +47,13 @@ test('analyse privée : sources comme données, champs bornés, pas d’action m
 
 test('le workflow SMTP refuse toute exécution tant que son verrou de configuration reste présent', async () => {
   const value = await workflow('mobile_envoi_note_v1');
-  assert.throws(() => execute(value.nodes.find(n => n.name === 'Verifier envoi'), { body: {} }), /non configurée/);
+  assert.throws(() => execute(value.nodes.find(n => n.name === 'Verifier envoi'), { body: {} }, { $env: { MOBILE_EMAIL_RELEASE: 'blocked' } }), /non configurée/);
   const smtp = value.nodes.find(n => n.type.endsWith('.emailSend'));
   assert.equal(smtp.retryOnFail, false);
   assert.equal(smtp.parameters.emailFormat, 'text');
   assert.equal(smtp.parameters.options.allowUnauthorizedCerts, false);
-  assert.equal(smtp.credentials, undefined);
+  assert.equal(smtp.parameters.fromEmail, 'Tonia <administration@toniaconseil.com>');
+  assert.equal(smtp.credentials.smtp.id, 'ToniaSmtpOutboundV1');
   const receipt = value.nodes.find(n => n.name === 'Verifier acceptation');
   const extra = { $: () => ({ first: () => ({ json: { recipient: 'test@example.invalid' } }) }) };
   assert.equal(execute(receipt, { messageId: 'synthetic', accepted: ['test@example.invalid'], rejected: [] }, extra)[0].json.accepted, true);

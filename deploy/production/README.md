@@ -146,6 +146,79 @@ Dans n8n, vérifier les deux credentials restaurés :
 
 Ne jamais exposer directement les ports `5432`, `5678`, `8080` ou `11434` sur le VPS.
 
+## 6.1 Courriel auto-hébergé, sans relais tiers
+
+Le transport retenu est **Postfix + OpenDKIM** dans un conteneur séparé. Il
+n’utilise ni Gmail, ni Microsoft 365, ni SendGrid, ni un autre relais SMTP.
+Seul n8n peut soumettre un message sur le réseau Docker interne
+`tonia-mail-submission`; aucun port SMTP n’est publié sur le VPS.
+
+La livraison à une adresse publique utilise néanmoins Internet pour joindre
+directement le serveur MX du destinataire. Pour un fonctionnement strictement
+hors Internet, conserver le circuit Mailpit local : un destinataire Gmail ou
+Outlook ne peut pas recevoir un courriel sans réseau externe.
+
+Avant de recréer n8n, préparer le réseau et la clé DKIM en gardant le service
+bloqué :
+
+```bash
+cd /opt/crm-hypothecaire
+cp deploy/mail/.env.smtp.example deploy/mail/.env.smtp
+chmod 600 deploy/mail/.env.smtp
+nano deploy/mail/.env.smtp
+bash deploy/mail/prepare-outbound.sh
+```
+
+Le script génère la clé privée dans `deploy/mail/runtime/dkim`, hors Git, et
+affiche seulement le TXT DKIM public. Il crée aussi le réseau privé attendu par
+le Compose de production. Publier ensuite, sans écraser les enregistrements
+existants :
+
+- `A mail.toniaconseil.com` vers l’IPv4 publique du VPS;
+- le `PTR` de cette IPv4 vers `mail.toniaconseil.com`;
+- un SPF unique qui autorise cette IPv4;
+- le TXT affiché pour `tonia._domainkey.toniaconseil.com`;
+- un DMARC initial surveillé (`p=none`), à durcir après la recette.
+
+Vérifier la propagation :
+
+```bash
+bash deploy/mail/verify-outbound-dns.sh
+```
+
+Sur une installation existante, ajouter dans `.env.production` un jeton généré
+avec `openssl rand -hex 32` :
+
+```text
+N8N_MOBILE_TOKEN=<secret généré>
+MOBILE_EMAIL_RELEASE=blocked
+```
+
+Puis recréer n8n et l’API, et importer les deux connexions ainsi que les deux
+workflows mobiles. Le script ne publie et n’active aucun workflow :
+
+```bash
+cd /opt/crm-hypothecaire/deploy/production
+docker compose --env-file .env.production -f compose.yml up -d n8n transcription-api
+bash import-mobile-mail-workflows.sh
+```
+
+Après validation DNS, démarrer Postfix exige encore le premier verrou
+`TONIA_MAIL_RELEASE=approved` dans `deploy/mail/.env.smtp` :
+
+```bash
+cd /opt/crm-hypothecaire
+docker compose --env-file deploy/mail/.env.smtp \
+  -f deploy/mail/compose.outbound.yml --profile outbound up -d
+```
+
+Le workflow et l’API refusent toujours l’envoi tant que
+`MOBILE_EMAIL_RELEASE=blocked`. Lever ce second verrou, recréer n8n et l’API,
+puis activer explicitement `ToniaMobileSyntheseV1` et
+`ToniaMobileEnvoiV1` seulement au moment d’une recette autorisée avec contenu
+fictif. Une acceptation par Postfix ne garantit ni la livraison ni le classement
+en boîte principale.
+
 ## Extension documentaire prévue
 
 L’architecture et les responsabilités sont définies dans

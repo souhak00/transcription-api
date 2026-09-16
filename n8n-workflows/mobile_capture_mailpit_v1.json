@@ -1,0 +1,160 @@
+{
+  "id": "ToniaMobileMailpitV1",
+  "name": "Tonia mobile — capture Mailpit privée (à configurer)",
+  "active": false,
+  "nodes": [
+    {
+      "id": "Recevoir",
+      "name": "Recevoir",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "ce7a7d4c-2eb0-48f8-9d8f-4fbcd21f3fb7",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "mobile/test/envoyer-note",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "CONFIGURER_CREDENTIAL_PRIVEE",
+          "name": "Tonia mobile API privée"
+        }
+      }
+    },
+    {
+      "id": "Verifier envoi",
+      "name": "Verifier envoi",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body;\nconst uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;\nconst keys = Object.keys(b?.association ?? {}).sort().join(',');\nconst associationOk = b?.association?.state === 'UNASSIGNED' ? keys === 'state' : b?.association?.state === 'ASSIGNED' && keys === 'clientCode,state' && /^CLI-[0-9]{4}-[A-Z]{2}-[0-9]{6}$/.test(b.association.clientCode ?? '');\nif (!b || !/^[a-f0-9]{64}$/.test(b.jobId ?? '') || !uuid.test(b.representativeId ?? '') || !associationOk || b.recipient !== 'recette@example.invalid' ||\ntypeof b.subject !== 'string' || b.subject.trim() !== b.subject || !/^Tonia — TEST LOCAL — synthèse mobile [a-f0-9]{8}$/.test(b.subject) ||\ntypeof b.text !== 'string' || !b.text.trim() || b.text.length > 650000) throw new Error('Capture Mailpit invalide.');\nreturn [{json:{recipient:'recette@example.invalid',subject:b.subject,text:b.text}}];"
+      }
+    },
+    {
+      "id": "Expedier SMTP",
+      "name": "Expedier SMTP",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        550,
+        0
+      ],
+      "retryOnFail": false,
+      "parameters": {
+        "resource": "email",
+        "operation": "send",
+        "fromEmail": "Tonia TEST LOCAL <tonia@example.invalid>",
+        "toEmail": "={{ $json.recipient }}",
+        "subject": "={{ $json.subject }}",
+        "emailFormat": "text",
+        "text": "={{ $json.text }}",
+        "options": {
+          "appendAttribution": false,
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "credentials": {
+        "smtp": {
+          "id": "ToniaSmtpLocalTestV1",
+          "name": "Tonia SMTP TEST LOCAL — aucun envoi réel"
+        }
+      }
+    },
+    {
+      "id": "Verifier acceptation",
+      "name": "Verifier acceptation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        820,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const info = $input.first().json;\nconst recipient = $('Verifier envoi').first().json.recipient;\nif (typeof info.messageId !== 'string' || !info.messageId || !Array.isArray(info.accepted) ||\n!info.accepted.some(address => typeof address === 'string' && address.toLowerCase() === recipient.toLowerCase()) ||\n(Array.isArray(info.rejected) && info.rejected.length)) throw new Error('Acceptation SMTP non confirmée.');\nreturn [{json:{accepted:true,deliveryMode:'MAILPIT',messageId:info.messageId}}];"
+      }
+    },
+    {
+      "id": "Repondre",
+      "name": "Repondre",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Recevoir": {
+      "main": [
+        [
+          {
+            "node": "Verifier envoi",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier envoi": {
+      "main": [
+        [
+          {
+            "node": "Expedier SMTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expedier SMTP": {
+      "main": [
+        [
+          {
+            "node": "Verifier acceptation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier acceptation": {
+      "main": [
+        [
+          {
+            "node": "Repondre",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "saveExecutionProgress": false,
+    "executionTimeout": 300
+  },
+  "pinData": {},
+  "tags": []
+}

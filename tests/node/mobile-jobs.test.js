@@ -16,7 +16,7 @@ const emailInput = () => {
   return { ...body, review: { sourceHash: sourceHash(body.transcript, body.personalNotes), recipientEmail: 'test@example.invalid', recipientConfirmed: true,
     rows: MOBILE_FIELDS.map(field => ({ field, value: '', decision: 'NOT_PROVIDED' })) } };
 };
-const env = { N8N_MOBILE_TOKEN: 'synthetic-test-only', N8N_MOBILE_ANALYSIS_WEBHOOK_URL: 'http://private.invalid/analysis', N8N_MOBILE_EMAIL_WEBHOOK_URL: 'http://private.invalid/email' };
+const env = { N8N_MOBILE_TOKEN: 'synthetic-test-only', N8N_MOBILE_ANALYSIS_WEBHOOK_URL: 'http://private.invalid/analysis', N8N_MOBILE_EMAIL_WEBHOOK_URL: 'http://private.invalid/email', MOBILE_EMAIL_RELEASE: 'approved' };
 const response = value => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
 async function temporary(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'tonia-mobile-test-'));

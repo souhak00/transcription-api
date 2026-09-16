@@ -43,6 +43,7 @@ CRM_RUNTIME_PASSWORD="$(random_hex)"
 KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD="$(random_hex)"
 N8N_PROXY_PASSWORD="$(openssl rand -hex 20)"
 DICTATION_WORKER_TOKEN="$(random_hex)"
+N8N_MOBILE_TOKEN="$(random_hex)"
 N8N_PROXY_PASSWORD_HASH="$(printf '%s\n' "$N8N_PROXY_PASSWORD" \
   | docker run --rm -i caddy:2.10.2-alpine caddy hash-password)"
 
@@ -71,6 +72,8 @@ N8N_PROXY_PASSWORD_HASH='$N8N_PROXY_PASSWORD_HASH'
 HUGGINGFACE_TOKEN=
 OLLAMA_MODEL=mistral-nemo
 DICTATION_WORKER_TOKEN=$DICTATION_WORKER_TOKEN
+N8N_MOBILE_TOKEN=$N8N_MOBILE_TOKEN
+MOBILE_EMAIL_RELEASE=blocked
 EOF
 
 mkdir -p "$(dirname "$INITIAL_SECRETS_FILE")"
@@ -100,6 +103,10 @@ Mot de passe: $CRM_RUNTIME_PASSWORD
 Compte technique Keycloak
 Client ID: $KEYCLOAK_ADMIN_CLIENT_ID
 Client secret: $KEYCLOAK_ADMIN_CLIENT_SECRET
+
+API mobile vers n8n
+En-tête: x-tonia-mobile-token
+Jeton: $N8N_MOBILE_TOKEN
 EOF
 
 chmod 600 "$ENV_FILE" "$INITIAL_SECRETS_FILE" "$ADMIN_CLIENT_FILE"

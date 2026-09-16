@@ -105,13 +105,16 @@ services:
       N8N_RUNNERS_ENABLED: "true"
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
+      MOBILE_EMAIL_RELEASE: ${MOBILE_EMAIL_RELEASE:-blocked}
       GENERIC_TIMEZONE: ${TZ}
       TZ: ${TZ}
     volumes:
       - n8n_data:/home/node/.n8n
     networks:
-      - frontend
-      - backend
+      frontend: {}
+      backend: {}
+      mail-submission:
+        ipv4_address: 172.29.241.10
     depends_on:
       postgres-crm:
         condition: service_healthy
@@ -195,6 +198,10 @@ services:
       N8N_CALENDAR_WEBHOOK_URL: http://n8n:5678/webhook/crm/agenda
       N8N_CALENDAR_WRITE_WEBHOOK_URL: http://n8n:5678/webhook/crm/agenda/evenements
       N8N_CALENDAR_UPDATE_WEBHOOK_URL: http://n8n:5678/webhook/crm/agenda/evenements/modifier
+      N8N_MOBILE_SUMMARY_WEBHOOK_URL: http://n8n:5678/webhook/mobile/synthese-segment
+      N8N_MOBILE_EMAIL_WEBHOOK_URL: http://n8n:5678/webhook/mobile/envoyer-note
+      N8N_MOBILE_TOKEN: ${N8N_MOBILE_TOKEN}
+      MOBILE_DELIVERY_MODE: LIVE
       AGENT_TIMEOUT_MS: "180000"
       KEYCLOAK_ISSUER: https://${AUTH_DOMAIN}/realms/crm-local
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/crm-local/protocol/openid-connect/certs
@@ -237,6 +244,9 @@ networks:
     ipam:
       config:
         - subnet: 172.31.0.0/24
+  mail-submission:
+    external: true
+    name: tonia-mail-submission
 
 volumes:
   caddy_data:

@@ -6,7 +6,7 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import { sourceHash, normalizeMobileJob, mobileEmail, createMobileService } from '../../src/mobile.js';
 
-const env = { N8N_MOBILE_TOKEN: 'synthetic-only', N8N_MOBILE_SUMMARY_WEBHOOK_URL: 'http://private.invalid/summary', N8N_MOBILE_EMAIL_WEBHOOK_URL: 'http://private.invalid/email' };
+const env = { N8N_MOBILE_TOKEN: 'synthetic-only', N8N_MOBILE_SUMMARY_WEBHOOK_URL: 'http://private.invalid/summary', N8N_MOBILE_EMAIL_WEBHOOK_URL: 'http://private.invalid/email', MOBILE_EMAIL_RELEASE: 'approved' };
 const alice = { subject: 'alice', representantId: '12345678-1234-4234-8234-123456789012', email: 'test@example.invalid', emailVerified: true, role: 'representant' };
 const bob = { ...alice, subject: 'bob', representantId: '22345678-1234-4234-8234-123456789012' };
 const response = data => new Response(JSON.stringify(data));
@@ -135,7 +135,7 @@ test('SMTP incertain ou interrompu : aucun renvoi automatique de la nouvelle syn
   await restarted.idle(); assert.equal((await restarted.get(alice, job.id)).status, 'UNKNOWN');
 });
 
-const execute = (node, json) => runInNewContext(`(function(){${node.parameters.jsCode}})()`, { $input: { first: () => ({ json }) } }, { timeout: 1000 });
+const execute = (node, json, extra = {}) => runInNewContext(`(function(){${node.parameters.jsCode}})()`, { $input: { first: () => ({ json }) }, ...extra }, { timeout: 1000 });
 test('workflow de synthèse privé borné et sans pouvoir sur les destinataires ni le CRM', async () => {
   const w = JSON.parse(await readFile(new URL('../../n8n-workflows/mobile_synthese_segment_v1.json', import.meta.url), 'utf8'));
   assert.equal(w.active, false); assert.equal(w.nodes[0].parameters.authentication, 'headerAuth');
@@ -159,11 +159,10 @@ test('workflow de synthèse privé borné et sans pouvoir sur les destinataires 
 test('le workflow SMTP accepte le sujet fixe de synthèse mais refuse un sujet injecté', async () => {
   const w = JSON.parse(await readFile(new URL('../../n8n-workflows/mobile_envoi_note_v1.json', import.meta.url), 'utf8'));
   const guard = w.nodes.find(n => n.name === 'Verifier envoi');
-  // Only the in-memory test clone has its configuration lock lifted. No SMTP call.
-  const enabled = { parameters: { jsCode: guard.parameters.jsCode.replace('const expeditionEnabled = false;', 'const expeditionEnabled = true;') } };
   const body = { jobId: 'a'.repeat(64), representativeId: '12345678-1234-4234-8234-123456789012',
     association: { state: 'UNASSIGNED' }, ...mobileEmail(normalizeMobileJob(input()), 'Résumé fictif') };
-  assert.equal(execute(enabled, { body })[0].json.recipient, 'test@example.invalid');
-  assert.throws(() => execute(enabled, { body: { ...body, subject: body.subject + '\nBcc:other@example.invalid' } }));
-  assert.throws(() => execute(guard, { body }), /non configurée/);
+  const released = { $env: { MOBILE_EMAIL_RELEASE: 'approved' } };
+  assert.equal(execute(guard, { body }, released)[0].json.recipient, 'test@example.invalid');
+  assert.throws(() => execute(guard, { body: { ...body, subject: body.subject + '\nBcc:other@example.invalid' } }, released));
+  assert.throws(() => execute(guard, { body }, { $env: { MOBILE_EMAIL_RELEASE: 'blocked' } }), /non configurée/);
 });

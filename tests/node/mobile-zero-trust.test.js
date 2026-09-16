@@ -54,7 +54,7 @@ test('le serveur lie le travail au représentant, au dossier canonique et au cou
 test('un changement de droit avant le courriel arrête le traitement', async t => {
   let authorizations = 0; let emails = 0;
   const service = createMobileService({ directory: await temporary(t),
-    env: { N8N_MOBILE_TOKEN: 'test', N8N_MOBILE_SUMMARY_WEBHOOK_URL: 'http://private.invalid/summary', N8N_MOBILE_EMAIL_WEBHOOK_URL: 'http://private.invalid/email' },
+    env: { N8N_MOBILE_TOKEN: 'test', N8N_MOBILE_SUMMARY_WEBHOOK_URL: 'http://private.invalid/summary', N8N_MOBILE_EMAIL_WEBHOOK_URL: 'http://private.invalid/email', MOBILE_EMAIL_RELEASE: 'approved' },
     authorizeClient: async (_rep, code) => {
       authorizations++;
       if (authorizations >= 3) { const error = new Error('Accès retiré'); error.statusCode = 404; throw error; }
@@ -75,7 +75,7 @@ test('un changement de droit avant le courriel arrête le traitement', async t =
 
 test('un autre courriel, un compte non vérifié ou un administrateur sont refusés', async t => {
   const service = createMobileService({ directory: await temporary(t), env: {
-    N8N_MOBILE_TOKEN: 'test', N8N_MOBILE_SUMMARY_WEBHOOK_URL: 'http://private.invalid/summary', N8N_MOBILE_EMAIL_WEBHOOK_URL: 'http://private.invalid/email'
+    N8N_MOBILE_TOKEN: 'test', N8N_MOBILE_SUMMARY_WEBHOOK_URL: 'http://private.invalid/summary', N8N_MOBILE_EMAIL_WEBHOOK_URL: 'http://private.invalid/email', MOBILE_EMAIL_RELEASE: 'approved'
   } });
   const transcript = 'Test.';
   const body = { kind: 'SUMMARY_EMAIL', noteId: '12345678-1234-4234-8234-123456789012', revision: 1,

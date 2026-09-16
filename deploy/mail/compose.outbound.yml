@@ -1,0 +1,64 @@
+# PREPARATION UNIQUEMENT. Ne pas combiner avec compose.test.yml.
+# Le verrou de démarrage exige validation de l'expéditeur, du DNS et de la recette.
+name: tonia-mail-outbound
+services:
+  smtp-outbound:
+    image: boky/postfix:v5.1.0@sha256:aafc772384232497bed875e1eb66b4d3e54ba1ebc86e2e185a6dc1dbc48182ef
+    profiles: [outbound]
+    restart: "no"
+    environment:
+      TONIA_MAIL_RELEASE: ${TONIA_MAIL_RELEASE:-blocked}
+      TONIA_MAIL_FROM: ${TONIA_MAIL_FROM:-tonia@example.invalid}
+      ALLOWED_SENDER_DOMAINS: ${TONIA_MAIL_DOMAIN:-example.invalid}
+      POSTFIX_myhostname: ${TONIA_MAIL_HOSTNAME:-smtp.example.invalid}
+      # Seul n8n est admis : le rattacher explicitement avec cette adresse.
+      POSTFIX_mynetworks: "127.0.0.0/8,172.29.241.10/32"
+      POSTFIX_smtpd_relay_restrictions: "permit_mynetworks,reject"
+      POSTFIX_smtpd_recipient_limit: "1"
+      POSTFIX_message_size_limit: "4194304"
+      POSTFIX_default_process_limit: "10"
+      # Espacement global par transport (et non par domaine destinataire).
+      POSTFIX_default_transport_rate_delay: "15s"
+      POSTFIX_smtp_destination_concurrency_limit: "1"
+      POSTFIX_maximal_queue_lifetime: "2d"
+      POSTFIX_bounce_queue_lifetime: "1d"
+      POSTFIX_inet_protocols: ipv4
+      # Soumission uniquement sur le réseau privé du même hôte.
+      POSTFIX_smtpd_tls_security_level: none
+      # Pas de repli vers du texte clair pour les données client sur Internet.
+      POSTFIX_smtp_tls_security_level: encrypt
+      POSTFIX_milter_default_action: tempfail
+      DKIM_AUTOGENERATE: ""
+      DKIM_SELECTOR: tonia
+      RELAYHOST: ""
+      ANONYMIZE_EMAILS: paranoid
+      PYTHONWARNINGS: "ignore::SyntaxWarning"
+      TZ: America/Toronto
+    volumes:
+      # Volumes distincts : ne jamais réutiliser la file de recette en production.
+      - outbound_queue:/var/spool/postfix
+      - ./runtime/dkim:/etc/opendkim/keys:ro
+      - ./outbound-gate.sh:/docker-init.d/90-tonia-gate.sh:ro
+    networks:
+      submission:
+        ipv4_address: 172.29.241.2
+      egress: {}
+    mem_limit: 256m
+    cpus: 0.25
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  submission:
+    external: true
+    name: tonia-mail-submission
+  egress: {}
+
+volumes:
+  outbound_queue:
