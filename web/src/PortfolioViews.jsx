@@ -4,16 +4,25 @@ import {
   ArrowRight,
   ArrowUpDown,
   BriefcaseBusiness,
+  CalendarClock,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   FileWarning,
-  FolderSearch2,
   ListTodo,
   RefreshCw,
   Search,
   UsersRound
 } from "lucide-react";
+import {
+  dossierDueDate,
+  dossierNextAction,
+  groupPortfolioByStage,
+  KANBAN_STAGES,
+  requiresInterventionToday,
+  torontoBusinessDate
+} from "./kanban.js";
+import "./kanban.css";
 
 function normalize(value) {
   return String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -52,13 +61,57 @@ function PriorityBadge({ row }) {
   );
 }
 
+function formatShortDate(value) {
+  if (!value) return "Aucune échéance";
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return "Aucune échéance";
+  return new Intl.DateTimeFormat("fr-CA", { day: "numeric", month: "short" }).format(date);
+}
+
+function KanbanCard({ row, onOpenDossier }) {
+  const missingDocuments = Number(row.nombre_documents_manquants ?? 0);
+  const overdueTasks = Number(row.nombre_taches_en_retard ?? 0);
+  const dueDate = dossierDueDate(row);
+  const documentNames = Array.isArray(row.documents_manquants) ? row.documents_manquants.filter(Boolean) : [];
+  const hasAlert = overdueTasks > 0 || row.statut_en_retard === true;
+
+  return (
+    <article className={`kanban-card ${hasAlert ? "has-alert" : ""}`}>
+      <div className="kanban-card-top">
+        <BriefcaseBusiness size={17} aria-hidden="true" />
+        <PriorityBadge row={row} />
+      </div>
+      <h4>{row.nom_client || "Client sans nom"}</h4>
+      <code>{row.code_client}</code>
+      <StatusBadge value={row.statut_dossier} row={row} />
+      <p className="kanban-need">{row.type_transaction || "Besoin à préciser"}</p>
+      <div className="kanban-next-action">
+        <span>Prochaine action</span>
+        <strong>{dossierNextAction(row)}</strong>
+      </div>
+      <div className="kanban-card-metadata">
+        <span className={dueDate && dueDate <= torontoBusinessDate() ? "late" : ""}>
+          <CalendarClock size={14} aria-hidden="true" /> {formatShortDate(dueDate)}
+        </span>
+        <span className={missingDocuments ? "warning" : ""} title={documentNames.join(" · ") || undefined}>
+          <FileWarning size={14} aria-hidden="true" /> {missingDocuments} document(s)
+        </span>
+        {overdueTasks > 0 && <span className="late"><AlertTriangle size={14} aria-hidden="true" /> {overdueTasks} tâche(s) en retard</span>}
+      </div>
+      <button type="button" onClick={() => onOpenDossier(row.code_client)} aria-label={`Ouvrir le dossier de ${row.nom_client}`}>
+        Ouvrir le dossier <ArrowRight size={15} aria-hidden="true" />
+      </button>
+    </article>
+  );
+}
+
 export default function PortfolioViews({ view, identity, onOpenDossier }) {
   const [rows, setRows] = useState([]);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
-  const [followUpOnly, setFollowUpOnly] = useState(false);
+  const [todayOnly, setTodayOnly] = useState(false);
   const [alertFilter, setAlertFilter] = useState("");
   const [sortField, setSortField] = useState("priority_desc");
   const [pageSize, setPageSize] = useState(10);
@@ -87,13 +140,13 @@ export default function PortfolioViews({ view, identity, onOpenDossier }) {
   const filteredRows = useMemo(() => rows.filter((row) => {
     const matchesText = !search || normalize(`${row.nom_client} ${row.code_client}`).includes(normalize(search));
     const matchesStatus = !status || row.statut_dossier === status;
-    const matchesFollowUp = !followUpOnly || Number(row.nombre_taches_en_retard) > 0 || row.date_rappel;
+    const matchesFollowUp = !todayOnly || requiresInterventionToday(row);
     const matchesAlert = !alertFilter
       || (alertFilter === "documents" && Number(row.nombre_documents_manquants) > 0)
       || (alertFilter === "tasks" && Number(row.nombre_taches_ouvertes) > 0)
       || (alertFilter === "late" && Number(row.nombre_taches_en_retard) > 0);
     return matchesText && matchesStatus && matchesFollowUp && matchesAlert;
-  }), [rows, search, status, followUpOnly, alertFilter]);
+  }), [rows, search, status, todayOnly, alertFilter]);
 
   const sortedRows = useMemo(() => [...filteredRows].sort((left, right) => {
     if (sortField === "name_asc") return String(left.nom_client ?? "").localeCompare(String(right.nom_client ?? ""), "fr");
@@ -106,8 +159,9 @@ export default function PortfolioViews({ view, identity, onOpenDossier }) {
   const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const paginatedRows = sortedRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const kanbanGroups = useMemo(() => groupPortfolioByStage(sortedRows), [sortedRows]);
 
-  useEffect(() => { setPage(1); }, [search, status, alertFilter, sortField, pageSize]);
+  useEffect(() => { setPage(1); }, [search, status, alertFilter, sortField, pageSize, todayOnly]);
 
   const metrics = useMemo(() => ({
     clients: rows.length,
@@ -160,7 +214,7 @@ export default function PortfolioViews({ view, identity, onOpenDossier }) {
           <label><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Rechercher un nom ou un code client" /></label>
           <select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filtrer par statut"><option value="">Tous les statuts</option>{statuses.map((value) => <option key={value}>{value}</option>)}</select>
           {isClients && <select value={alertFilter} onChange={(event) => setAlertFilter(event.target.value)} aria-label="Filtrer par alerte"><option value="">Toutes les alertes</option><option value="documents">Documents manquants</option><option value="tasks">Tâches ouvertes</option><option value="late">Tâches en retard</option></select>}
-          {!isClients && <label className="follow-up-filter"><input type="checkbox" checked={followUpOnly} onChange={(event) => setFollowUpOnly(event.target.checked)} /> Suivis requis</label>}
+          {!isClients && <label className="follow-up-filter"><input type="checkbox" checked={todayOnly} onChange={(event) => setTodayOnly(event.target.checked)} /> À intervenir aujourd’hui</label>}
         </div>
 
         {isClients ? (
@@ -176,7 +230,22 @@ export default function PortfolioViews({ view, identity, onOpenDossier }) {
             </div>
           </>
         ) : (
-          <div className="dossier-board">{sortedRows.map((row) => <article key={row.code_client}><div className="dossier-card-top"><FolderSearch2 size={20} /><StatusBadge value={row.statut_dossier} row={row} /></div><h3>{row.nom_client}</h3><code>{row.code_client}</code><div className="dossier-card-metrics"><span><FileWarning size={15} /> {row.nombre_documents_manquants || 0} document(s)</span><span><ListTodo size={15} /> {row.nombre_taches_ouvertes || 0} tâche(s)</span>{Number(row.nombre_taches_en_retard) > 0 && <span className="late"><AlertTriangle size={15} /> {row.nombre_taches_en_retard} en retard</span>}</div><div className="dossier-card-footer"><PriorityBadge row={row} /><button type="button" onClick={() => onOpenDossier(row.code_client)}>Consulter <ArrowRight size={15} /></button></div></article>)}</div>
+          <div className="kanban-board" aria-label="Kanban des dossiers">
+            {KANBAN_STAGES.map((stage) => (
+              <section className="kanban-column" key={stage.id} aria-labelledby={`kanban-${stage.id}`}>
+                <header>
+                  <h3 id={`kanban-${stage.id}`}>{stage.label}</h3>
+                  <span aria-label={`${kanbanGroups[stage.id].length} dossier(s)`}>{kanbanGroups[stage.id].length}</span>
+                </header>
+                <div className="kanban-column-cards">
+                  {kanbanGroups[stage.id].map((row) => (
+                    <KanbanCard key={row.code_client} row={row} onOpenDossier={onOpenDossier} />
+                  ))}
+                  {!kanbanGroups[stage.id].length && <p className="kanban-column-empty">Aucun dossier</p>}
+                </div>
+              </section>
+            ))}
+          </div>
         )}
         {!filteredRows.length && <div className="portfolio-empty"><CheckCircle2 size={22} /> Aucun élément ne correspond à ces filtres.</div>}
       </section>

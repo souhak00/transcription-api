@@ -19,12 +19,26 @@ AS $function$
             c.nom_client,
             c.statut_dossier,
             c.statut_depuis,
+            c.type_transaction,
             c.revenu_annuel,
             c.date_rappel,
             c.updated_at,
             COALESCE(d.nombre_manquants, 0)::integer AS nombre_documents_manquants,
+            COALESCE(d.documents_manquants, ARRAY[]::text[]) AS documents_manquants,
             COALESCE(t.nombre_ouvertes, 0)::integer AS nombre_taches_ouvertes,
             COALESCE(t.nombre_retard, 0)::integer AS nombre_taches_en_retard,
+            CASE WHEN prochaine.titre IS NOT NULL THEN jsonb_build_object(
+                'titre', prochaine.titre,
+                'description', prochaine.description,
+                'date_echeance', prochaine.date_echeance
+            ) END AS prochaine_action,
+            prochaine.date_echeance,
+            GREATEST(
+                c.updated_at,
+                COALESCE(d.derniere_modification, c.updated_at),
+                COALESCE(t.derniere_modification, c.updated_at),
+                COALESCE(i.derniere_interaction, c.updated_at)
+            ) AS date_derniere_activite,
             (
                 COALESCE(d.nombre_manquants, 0) * 15
                 + COALESCE(t.nombre_ouvertes, 0) * 5
@@ -36,11 +50,18 @@ AS $function$
             )::integer AS priority_score
         FROM public.clients c
         LEFT JOIN LATERAL (
-            SELECT count(*) FILTER (
-                WHERE lower(trim(COALESCE(dr.statut, ''))) IN (
-                    'a recevoir', 'à recevoir', 'manquant', 'manquante', 'en attente'
-                )
-            ) AS nombre_manquants
+            SELECT
+                count(*) FILTER (
+                    WHERE lower(trim(COALESCE(dr.statut, ''))) IN (
+                        'a recevoir', 'à recevoir', 'manquant', 'manquante', 'en attente'
+                    )
+                ) AS nombre_manquants,
+                array_agg(dr.document ORDER BY dr.created_at) FILTER (
+                    WHERE lower(trim(COALESCE(dr.statut, ''))) IN (
+                        'a recevoir', 'à recevoir', 'manquant', 'manquante', 'en attente'
+                    )
+                ) AS documents_manquants,
+                max(dr.created_at) AS derniere_modification
             FROM public.documents_requis dr
             WHERE dr.client_id = c.client_id
         ) d ON true
@@ -55,10 +76,29 @@ AS $function$
                     WHERE lower(trim(COALESCE(ta.statut, ''))) IN (
                         'ouverte', 'ouvert', 'en cours', 'à faire', 'a faire'
                     ) AND ta.date_echeance < current_date
-                ) AS nombre_retard
+                ) AS nombre_retard,
+                max(ta.created_at) AS derniere_modification
             FROM public.taches ta
             WHERE ta.client_id = c.client_id
         ) t ON true
+        LEFT JOIN LATERAL (
+            SELECT ta.titre, ta.description, ta.date_echeance
+            FROM public.taches ta
+            WHERE ta.client_id = c.client_id
+              AND lower(trim(COALESCE(ta.statut, ''))) IN (
+                  'ouverte', 'ouvert', 'en cours', 'à faire', 'a faire'
+              )
+            ORDER BY
+                CASE WHEN ta.date_echeance < current_date THEN 0 ELSE 1 END,
+                ta.date_echeance NULLS LAST,
+                ta.created_at
+            LIMIT 1
+        ) prochaine ON true
+        LEFT JOIN LATERAL (
+            SELECT max(interaction.created_at) AS derniere_interaction
+            FROM public.interactions interaction
+            WHERE interaction.client_id = c.client_id
+        ) i ON true
         WHERE (
             p_selection_codes IS NULL
             OR cardinality(p_selection_codes) = 0
@@ -111,9 +151,10 @@ AS $function$
         'nombre_clients', count(*),
         'aggregate', p_aggregate,
         'columns', jsonb_build_array(
-            'nom_client', 'code_client', 'statut_dossier', 'revenu_annuel',
-            'nombre_documents_manquants', 'nombre_taches_ouvertes',
-            'nombre_taches_en_retard', 'priority_score'
+            'nom_client', 'code_client', 'statut_dossier', 'type_transaction',
+            'revenu_annuel', 'documents_manquants', 'prochaine_action',
+            'date_echeance', 'date_derniere_activite', 'nombre_documents_manquants',
+            'nombre_taches_ouvertes', 'nombre_taches_en_retard', 'priority_score'
         ),
         'result_codes', COALESCE(jsonb_agg(t.code_client ORDER BY t.updated_at DESC), '[]'::jsonb),
         'rows', COALESCE(jsonb_agg(
@@ -126,11 +167,16 @@ AS $function$
                 'delai_cible_jours', CASE WHEN lower(trim(COALESCE(t.statut_dossier, ''))) = 'en analyse' THEN 5 END,
                 'statut_en_retard', CASE WHEN lower(trim(COALESCE(t.statut_dossier, ''))) = 'en analyse'
                     THEN current_date - t.statut_depuis::date > 5 ELSE false END,
+                'type_transaction', t.type_transaction,
                 'revenu_annuel', t.revenu_annuel,
                 'date_rappel', t.date_rappel,
                 'nombre_documents_manquants', t.nombre_documents_manquants,
+                'documents_manquants', to_jsonb(t.documents_manquants),
                 'nombre_taches_ouvertes', t.nombre_taches_ouvertes,
                 'nombre_taches_en_retard', t.nombre_taches_en_retard,
+                'prochaine_action', t.prochaine_action,
+                'date_echeance', t.date_echeance,
+                'date_derniere_activite', t.date_derniere_activite,
                 'priority_score', t.priority_score,
                 'priority_reasons', ARRAY_REMOVE(ARRAY[
                     CASE WHEN t.nombre_taches_en_retard > 0
