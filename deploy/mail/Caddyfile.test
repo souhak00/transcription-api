@@ -1,0 +1,12 @@
+{
+    admin off
+    auto_https off
+}
+
+:8080 {
+    @untrusted not host localhost 127.0.0.1
+    respond @untrusted "Accès local uniquement" 403
+    reverse_proxy mailpit:8025 {
+        header_up Host mailpit
+    }
+}

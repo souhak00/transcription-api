@@ -1,0 +1,2 @@
+/^[a-zA-Z0-9._+-]+@example\.invalid$/ OK
+/.*/ REJECT Recette Tonia : destinataire fictif @example.invalid uniquement

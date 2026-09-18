@@ -8,18 +8,18 @@ function getMaxBodyMb() {
 }
 
 /** Lit le corps HTTP binaire tout en bloquant les uploads excessivement volumineux. */
-export async function readRequestBuffer(request) {
+export async function readRequestBuffer(request, options = {}) {
   const chunks = [];
   let size = 0;
   const maxBodyMb = getMaxBodyMb();
-  const maxBytes = maxBodyMb * 1024 * 1024;
+  const maxBytes = Number(options.maxBytes || maxBodyMb * 1024 * 1024);
 
   // Une requete HTTP arrive par portions; chaque portion est accumulee en memoire.
   for await (const chunk of request) {
     size += chunk.length;
     // Refuse le fichier des qu'il depasse la limite configuree.
     if (size > maxBytes) {
-      throw new Error(`Fichier trop volumineux. Limite actuelle: ${maxBodyMb} MB.`);
+      throw new Error(options.errorMessage || `Fichier trop volumineux. Limite actuelle: ${maxBodyMb} MB.`);
     }
     chunks.push(chunk);
   }

@@ -1,0 +1,307 @@
+{
+  "updatedAt": "2026-08-07T03:04:54.000Z",
+  "createdAt": "2026-07-30T01:13:31.408Z",
+  "id": "CrmEtatDossierV1",
+  "name": "CRM - État du dossier - Validation",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f1016d4f-2b4a-4fc9-9dbd-50b1f7b4d001",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "80469cf7-99dc-46ea-b68c-4f68e9bd7697",
+              "name": "terme_recherche",
+              "value": "Tremblay",
+              "type": "string"
+            },
+            {
+              "id": "7f27d6ad-d6bb-4d07-918a-e7d59f9e6a01",
+              "name": "representant_id",
+              "value": "ac7b7a4b-907e-4733-a0de-4e5ed40e6af0",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1016d4f-2b4a-4fc9-9dbd-50b1f7b4d002",
+      "name": "Définir recherche client",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -620,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', $1::text, true)\n)\nSELECT crm.rechercher_clients($2::text) AS resultat\nFROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$json.representant_id, $json.terme_recherche] }}"
+        }
+      },
+      "id": "f1016d4f-2b4a-4fc9-9dbd-50b1f7b4d003",
+      "name": "CRM - Rechercher clients",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -380,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Workflow manuel de validation. Le nœud appelle uniquement le service crm.rechercher_clients().",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resultat = $json.resultat;\nconst candidats = resultat?.resultats ?? [];\nconst exacts = candidats.filter((client) =>\n  client.nom_client?.localeCompare('Tremblay', 'fr', { sensitivity: 'accent' }) === 0\n);\n\nif (exacts.length !== 1) {\n  throw new Error(`Sélection de validation impossible: ${exacts.length} correspondance(s) exacte(s) parmi ${candidats.length} résultat(s).`);\n}\n\nreturn [{ json: { client_id: exacts[0].client_id, client: exacts[0], nombre_candidats: candidats.length } }];"
+      },
+      "id": "f1016d4f-2b4a-4fc9-9dbd-50b1f7b4d004",
+      "name": "Sélectionner client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -140,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Sélection déterministe réservée au scénario de validation Tremblay. L'agent conversationnel devra demander une clarification en cas d'ambiguïté."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT\n    set_config('app.role', 'representant', true),\n    set_config('app.representant_id', $1::text, true)\n)\nSELECT crm.obtenir_etat_dossier($2::uuid) AS resultat\nFROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$('Définir recherche client').first().json.representant_id, $json.client_id] }}"
+        }
+      },
+      "id": "f1016d4f-2b4a-4fc9-9dbd-50b1f7b4d005",
+      "name": "CRM - Obtenir état du dossier",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        100,
+        0
+      ],
+      "notesInFlow": true,
+      "notes": "Workflow manuel de validation. Aucun accès direct aux tables.",
+      "credentials": {
+        "postgres": {
+          "id": "4ck3F2rmlyoKa4hx",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c85ee4c8-e425-48bf-bf20-2e03f01a9a10",
+              "name": "etat_dossier",
+              "value": "={{ $json.resultat }}",
+              "type": "object"
+            },
+            {
+              "id": "eb7ed69d-f826-474e-a1ba-68292632c60f",
+              "name": "prompt",
+              "value": "=Tu es un assistant CRM hypothécaire québécois. Résume uniquement les faits du JSON suivant en français clair, en 120 mots maximum. Mentionne l'état, les documents manquants, les tâches ouvertes et la prochaine action. Ne mentionne jamais les UUID, les identifiants techniques ni les champs internes. N'invente rien. Termine toujours par une phrase complète.\\n\\n{{ JSON.stringify($json.resultat) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1016d4f-2b4a-4fc9-9dbd-50b1f7b4d006",
+      "name": "Préparer contexte IA",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        340,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:11434/api/generate",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ model: 'mistral-nemo', prompt: $json.prompt, stream: false, options: { temperature: 0, num_predict: 500 } }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "f1016d4f-2b4a-4fc9-9dbd-50b1f7b4d007",
+      "name": "IA - Résumer état du dossier",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        580,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e51b79ae-0709-464f-81ce-39e11011cba7",
+              "name": "reponse",
+              "value": "={{ $json.response }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1016d4f-2b4a-4fc9-9dbd-50b1f7b4d008",
+      "name": "Réponse CRM finale",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        820,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Définir recherche client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Définir recherche client": {
+      "main": [
+        [
+          {
+            "node": "CRM - Rechercher clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM - Rechercher clients": {
+      "main": [
+        [
+          {
+            "node": "Sélectionner client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sélectionner client": {
+      "main": [
+        [
+          {
+            "node": "CRM - Obtenir état du dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CRM - Obtenir état du dossier": {
+      "main": [
+        [
+          {
+            "node": "Préparer contexte IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Préparer contexte IA": {
+      "main": [
+        [
+          {
+            "node": "IA - Résumer état du dossier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA - Résumer état du dossier": {
+      "main": [
+        [
+          {
+            "node": "Réponse CRM finale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "bfa4c6c5-878f-4493-80ed-927f826d6c09",
+  "activeVersionId": null,
+  "versionCounter": 5,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-07-30T01:13:31.412Z",
+      "createdAt": "2026-07-30T01:13:31.412Z",
+      "role": "workflow:owner",
+      "workflowId": "CrmEtatDossierV1",
+      "projectId": "VN1nbOvuajbWSkxr",
+      "project": {
+        "updatedAt": "2026-07-15T11:52:02.393Z",
+        "createdAt": "2026-07-15T03:09:45.555Z",
+        "id": "VN1nbOvuajbWSkxr",
+        "name": "hakim soussouhakim@yahoo.com <soussouhakim@yahoo.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "3c342ba3-d3d4-4563-8cb0-41f4c81408d7"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

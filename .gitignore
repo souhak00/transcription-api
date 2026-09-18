@@ -1,8 +1,24 @@
 node_modules/
+web/dist/
 .env
+.env.production
 outputs/
+.runtime/
+runtime/
+deploy/production/runtime/
+deploy/mail/runtime/
+deploy/mail/.env.smtp
 *.log
 
+# Android
+android/.gradle/
+android/local.properties
+android/**/build/
+android/.idea/
+android/captures/
+android/*.iml
+
 backups/
+backup/*.json
 *.dump
 sauvegarde_*.zip

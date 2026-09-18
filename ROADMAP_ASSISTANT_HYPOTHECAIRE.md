@@ -15,7 +15,12 @@ La solution dispose deja de:
 - synthese IA avec Ollama;
 - sauvegarde de la synthese IA dans Google Drive;
 - envoi Gmail;
-- debut d'extraction JSON client avec Ollama;
+- extraction JSON client avec Ollama, segmentation séquentielle et preuves
+  verbatim;
+- prévalidation déterministe des champs CRM, sans écriture automatique;
+- services métier PostgreSQL `crm.*` retournant du JSON;
+- workflow CRM de consultation du dossier Tremblay validé;
+- workflow d'analyse de transcription texte publié et testé sur cinq segments;
 - documentation et procedure de reprise.
 
 Workflow actuel:
@@ -184,7 +189,9 @@ Chaque prochaine_action importante devient une tache exploitable.
 
 ### 4. Detection des documents requis
 
-L'IA produit une liste de documents manquants:
+La première version laisse l'IA produire une liste indicative de documents
+manquants. Cette liste libre est conservée pour compatibilité, mais elle ne
+constitue pas une checklist complète ou une décision de conformité.
 
 ```text
 Avis de cotisation
@@ -201,11 +208,29 @@ Valeur:
 - facilite la relance client;
 - standardise les demandes documentaires.
 
-Critere de validation:
+Critère historique de validation :
 
 ```text
 documents_requis contient une liste non vide quand le dossier est incomplet.
 ```
+
+Architecture cible :
+
+```text
+profil confirmé
+-> règles documentaires versionnées
+-> checklist par dossier et participant
+-> téléversement privé
+-> antivirus
+-> extraction PDF ou OCR
+-> extraction déterministe
+-> aide Ollama facultative
+-> validation humaine
+```
+
+Le critère cible exige que chaque document applicable soit explicable par une
+règle, associé à une étape du parcours et suivi jusqu’à acceptation, refus,
+expiration ou dérogation auditée. Voir `docs/gestion-documentaire-ocr.md`.
 
 ## Phase 2 - CRM intelligent (1 mois)
 
@@ -235,20 +260,9 @@ Champs minimaux:
 | `statut_dossier` | Nouveau |
 | `date_appel` | 2026-06-05 |
 
-Technologies possibles:
-
-- Google Sheets pour POC;
-- Airtable;
-- NocoDB;
-- PostgreSQL;
-- Supabase.
-
-Recommandation:
-
-```text
-Google Sheets pour le POC.
-PostgreSQL ou Supabase pour la version durable.
-```
+La technologie retenue est PostgreSQL. Les fonctions du schéma `crm`
+constituent l'API interne JSON; n8n et Ollama ne lisent jamais directement les
+tables.
 
 ### 6. Deduplication des clients
 
@@ -474,22 +488,71 @@ Indicateurs:
 | 8 | Tableau de bord | Moyenne |
 | 9 | Recherche IA dans les appels | Tres elevee |
 | 10 | Courriels automatiques | Elevee |
+| 11 | Catalogue et checklist documentaire déterministe | Très élevée |
+| 12 | Téléversement, antivirus et stockage objet | Très élevée |
+| 13 | OCR et validation humaine | Très élevée |
 
 ## Prochaine etape concrete
 
-Puisque n8n, Ollama, Vosk, Gmail et Google Drive fonctionnent deja, la prochaine etape a plus forte valeur est:
+L'extraction JSON, les services PostgreSQL, le workflow CRM de consultation et
+l'isolation RLS sont maintenant validés. Les migrations 005 à 009 sont
+appliquées, `Postgres CRM Runtime` est associé aux cinq outils et chaque
+client possède un identifiant métier `CLI-AAAA-II-NNNNNN`. Les outils de
+l’agent utilisent désormais ce code au lieu de transmettre les UUID.
+Les tests conversationnels de lecture sont maintenant terminés. L’intégration
+Keycloak est versionnée : realm OIDC, client React avec PKCE, validation RS256
+dans l’API et propagation dynamique du `representant_id`. La prochaine étape
+est d’initialiser le compte local, puis de basculer le workflow publié :
 
 ```text
-Stabiliser le noeud Ollama - Extraction JSON client
--> Parser le JSON
--> Alimenter une base Google Sheets POC
+Tests de lecture terminés le 2026-08-09
+-> dix derniers clients retournés avec code_client et statut
+-> Olivier Bergeron : 3 documents, 2 manquants et 1 tâche ouverte
+-> aucun UUID ni code représentant affiché
+-> routeur n8n déterministe validé pour clients récents, documents et tâches
+-> affichage du dossier complet validé par nom ou code_client dans React
+-> commande « afficher le dossier CLI-… » routée sans dépendre du modèle
+-> chemin conversationnel libre validé avec Ollama mistral-nemo
+-> publication locale temporaire du webhook autorisée et validée le 2026-08-09
+-> désactiver ce webhook après la démonstration ou implanter le JWT avant toute
+   exposition hors du poste de développement
+-> Keycloak retenu comme gestionnaire d’identité local
+-> validation API : issuer, audience crm-api, signature RS256, rôle et attribut
+-> UUID fixe retiré du workflow n8n versionné
+-> compte Keycloak local initialisé et rôle représentant vérifié le 2026-08-10
+-> version n8n sécurisée publiée le 2026-08-10 avec app.role et
+   app.representant_id initialisés dans le même appel SQL
+-> sept accès PostgreSQL vérifiés : uniquement des fonctions crm.*
+-> contrat conversationnel JSON 1.0, routage hybride et contexte minimal actifs
+-> parcours React + Keycloak + API + n8n + PostgreSQL validé de bout en bout le
+   2026-08-10, incluant clarification et question libre Ollama
+-> consultation globale des clients avec documents manquants implantée et
+   validée le 2026-08-10 dans PostgreSQL, n8n, l’API et React
+-> ajouter une validation humaine explicite
+-> autoriser ensuite la création contrôlée d'interactions, documents et tâches
 ```
 
-Ensuite:
+Le script interactif versionné
+`scripts/configurer_mot_de_passe_crm_runtime.ps1` a servi à définir le mot de
+passe local sans le journaliser. Le workflow MVP versionné utilise Ollama
+`mistral-nemo` et cinq outils en lecture seule : rechercher un client,
+obtenir son dossier, ses documents, ses tâches et afficher les dix derniers
+clients.
 
-```text
-Ajouter representant_id
--> rechercher client existant
--> creer ou mettre a jour client
--> creer interaction
-```
+L'analyse de transcription reste une prévalidation : elle ne crée ni client ni
+interaction tant que l'identité du client, le représentant et les faits retenus
+n'ont pas été confirmés.
+
+## Phase documentaire suivante
+
+1. Ajouter le catalogue, les règles et les instances de checklist.
+2. Relier chaque exigence au dossier, au participant et à l’étape du parcours.
+3. Ajouter le stockage objet, la quarantaine, ClamAV et le versionnement.
+4. Exécuter extraction PDF ou OCRmyPDF/Tesseract dans un worker séquentiel.
+5. Présenter les champs candidats à une validation humaine.
+6. Utiliser Ollama seulement pour les textes libres ou classifications ambiguës.
+7. Publier les événements validés vers n8n pour les relances.
+
+Le KVM 4 actuel suffit à une bêta avec une concurrence documentaire de 1 et un
+stockage externe. Les critères de surveillance sont dans
+`docs/capacite-hostinger.md`.

@@ -1,0 +1,160 @@
+{
+  "id": "CrmAgendaV1",
+  "name": "CRM - Agenda et rappels - MVP",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/agenda",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [320, 300],
+      "id": "6badfe91-29c7-4d68-a9db-90360aa04c25",
+      "name": "Webhook - Consulter agenda",
+      "webhookId": "2ef68eb9-6bfc-49d8-9194-d281fbf82348"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT set_config('app.role', 'representant', true), set_config('app.representant_id', $1::uuid::text, true)\n)\nSELECT crm.consulter_agenda($2::timestamptz, $3::timestamptz, $4::jsonb) AS resultat FROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id, $json.body.start, $json.body.end, JSON.stringify($json.body.filters ?? {})] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [580, 300],
+      "id": "69ad75ed-cf64-4af9-a2b6-068aec3aa6db",
+      "name": "CRM - Consulter agenda",
+      "credentials": {
+        "postgres": { "id": "wCLuOE3i6RejO6bL", "name": "Postgres CRM Runtime" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { schema_version: '1.0', status: 'success', data: $json.resultat } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [840, 300],
+      "id": "89c8c402-5d88-4e27-8e14-b2c2f6a20cdc",
+      "name": "Repondre agenda"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/agenda/evenements",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [320, 560],
+      "id": "830ad3dc-d9ee-4bdd-a899-f2ef2b402390",
+      "name": "Webhook - Creer evenement",
+      "webhookId": "affb7f8c-2599-4418-b608-44f1cda20e11"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT set_config('app.role', 'representant', true), set_config('app.representant_id', $1::uuid::text, true)\n)\nSELECT crm.creer_evenement_agenda($2::jsonb, $3::uuid) AS resultat FROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id, JSON.stringify($json.body.event ?? {}), $json.body.request_id] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [580, 560],
+      "id": "76f8182c-5788-4b66-9eb1-8910d9a1e924",
+      "name": "CRM - Creer evenement",
+      "credentials": {
+        "postgres": { "id": "wCLuOE3i6RejO6bL", "name": "Postgres CRM Runtime" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { schema_version: '1.0', status: 'success', data: $json.resultat } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [840, 560],
+      "id": "f640bbab-ded1-4423-967d-08a75aaf3e1a",
+      "name": "Repondre creation evenement"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crm/agenda/evenements/modifier",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [320, 800],
+      "id": "4bd89da8-e5bc-4c47-a868-247ae3fc73bf",
+      "name": "Webhook - Modifier evenement",
+      "webhookId": "d93a2444-b535-48e2-a013-a23fd9092bb5"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH contexte AS MATERIALIZED (\n  SELECT set_config('app.role', 'representant', true), set_config('app.representant_id', $1::uuid::text, true)\n)\nSELECT crm.modifier_evenement_agenda($2::text, $3::jsonb) AS resultat FROM contexte;",
+        "options": {
+          "queryReplacement": "={{ [$json.body.security_context?.representant_id ?? $json.body.representant_id, $json.body.code_evenement, JSON.stringify($json.body.event ?? {})] }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [580, 800],
+      "id": "c756639e-2ea0-441d-96c4-64548ebf97cc",
+      "name": "CRM - Modifier evenement",
+      "credentials": {
+        "postgres": { "id": "wCLuOE3i6RejO6bL", "name": "Postgres CRM Runtime" }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { schema_version: '1.0', status: 'success', data: $json.resultat } }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [840, 800],
+      "id": "00caf2ee-07dd-4e67-a7d6-622b5518f9d2",
+      "name": "Repondre modification evenement"
+    }
+  ],
+  "connections": {
+    "Webhook - Consulter agenda": {
+      "main": [[{ "node": "CRM - Consulter agenda", "type": "main", "index": 0 }]]
+    },
+    "CRM - Consulter agenda": {
+      "main": [[{ "node": "Repondre agenda", "type": "main", "index": 0 }]]
+    },
+    "Webhook - Creer evenement": {
+      "main": [[{ "node": "CRM - Creer evenement", "type": "main", "index": 0 }]]
+    },
+    "CRM - Creer evenement": {
+      "main": [[{ "node": "Repondre creation evenement", "type": "main", "index": 0 }]]
+    },
+    "Webhook - Modifier evenement": {
+      "main": [[{ "node": "CRM - Modifier evenement", "type": "main", "index": 0 }]]
+    },
+    "CRM - Modifier evenement": {
+      "main": [[{ "node": "Repondre modification evenement", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "availableInMCP": false },
+  "versionId": "85251297-760e-4c3c-bf97-a2a471904f43",
+  "meta": { "templateCredsSetupCompleted": true },
+  "tags": []
+}
